@@ -11,7 +11,8 @@ export function lojaAberta(abre: string, fecha: string, manual: boolean | null, 
 
 export function Clock() {
   const [now, setNow] = useState<Date | null>(null);
-  const { data: cfg } = useQuery(configQ);
+  const { data } = useQuery(configQ);
+  const cfg = data as { abre: string; fecha: string; aberta_manual: boolean | null } | undefined;
   useEffect(() => { setNow(new Date()); const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
   if (!now) return null;
   const aberta = cfg ? lojaAberta(cfg.abre, cfg.fecha, cfg.aberta_manual, now) : null;
