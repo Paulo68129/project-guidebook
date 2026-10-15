@@ -14,16 +14,357 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      cupons: {
+        Row: {
+          ativo: boolean
+          codigo: string
+          id: string
+          percentual: number
+        }
+        Insert: {
+          ativo?: boolean
+          codigo: string
+          id?: string
+          percentual?: number
+        }
+        Update: {
+          ativo?: boolean
+          codigo?: string
+          id?: string
+          percentual?: number
+        }
+        Relationships: []
+      }
+      ingredientes: {
+        Row: {
+          created_at: string | null
+          custo_unitario: number
+          estoque_minimo: number
+          id: string
+          nome: string
+          quantidade: number
+          unidade: string
+          validade: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          custo_unitario?: number
+          estoque_minimo?: number
+          id?: string
+          nome: string
+          quantidade?: number
+          unidade?: string
+          validade?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          custo_unitario?: number
+          estoque_minimo?: number
+          id?: string
+          nome?: string
+          quantidade?: number
+          unidade?: string
+          validade?: string | null
+        }
+        Relationships: []
+      }
+      loja_config: {
+        Row: {
+          aberta_manual: boolean | null
+          abre: string
+          fecha: string
+          id: number
+          som_alerta: boolean
+          taxa_entrega: number
+        }
+        Insert: {
+          aberta_manual?: boolean | null
+          abre?: string
+          fecha?: string
+          id?: number
+          som_alerta?: boolean
+          taxa_entrega?: number
+        }
+        Update: {
+          aberta_manual?: boolean | null
+          abre?: string
+          fecha?: string
+          id?: number
+          som_alerta?: boolean
+          taxa_entrega?: number
+        }
+        Relationships: []
+      }
+      motoboys: {
+        Row: {
+          ativo: boolean
+          created_at: string | null
+          id: string
+          nome: string
+          telefone: string | null
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string | null
+          id?: string
+          nome: string
+          telefone?: string | null
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string | null
+          id?: string
+          nome?: string
+          telefone?: string | null
+        }
+        Relationships: []
+      }
+      produtos: {
+        Row: {
+          ativo: boolean
+          categoria: string
+          created_at: string | null
+          descricao: string | null
+          id: string
+          nome: string
+          preco: number
+        }
+        Insert: {
+          ativo?: boolean
+          categoria?: string
+          created_at?: string | null
+          descricao?: string | null
+          id?: string
+          nome: string
+          preco?: number
+        }
+        Update: {
+          ativo?: boolean
+          categoria?: string
+          created_at?: string | null
+          descricao?: string | null
+          id?: string
+          nome?: string
+          preco?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          id: string
+          nome: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          id: string
+          nome?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          nome?: string | null
+        }
+        Relationships: []
+      }
+      receitas: {
+        Row: {
+          id: string
+          ingrediente_id: string
+          produto_id: string
+          quantidade: number
+        }
+        Insert: {
+          id?: string
+          ingrediente_id: string
+          produto_id: string
+          quantidade: number
+        }
+        Update: {
+          id?: string
+          ingrediente_id?: string
+          produto_id?: string
+          quantidade?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "receitas_ingrediente_id_fkey"
+            columns: ["ingrediente_id"]
+            isOneToOne: false
+            referencedRelation: "ingredientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "receitas_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      venda_itens: {
+        Row: {
+          custo_unitario: number
+          id: string
+          nome: string
+          preco_unitario: number
+          produto_id: string | null
+          quantidade: number
+          venda_id: string
+        }
+        Insert: {
+          custo_unitario?: number
+          id?: string
+          nome: string
+          preco_unitario: number
+          produto_id?: string | null
+          quantidade: number
+          venda_id: string
+        }
+        Update: {
+          custo_unitario?: number
+          id?: string
+          nome?: string
+          preco_unitario?: number
+          produto_id?: string | null
+          quantidade?: number
+          venda_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venda_itens_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venda_itens_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: false
+            referencedRelation: "vendas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendas: {
+        Row: {
+          cliente: string | null
+          created_at: string
+          criado_por: string | null
+          cupom: string | null
+          custo: number
+          desconto: number
+          endereco: string | null
+          id: string
+          lucro: number
+          motoboy_id: string | null
+          numero: number
+          status: string
+          subtotal: number
+          taxa_entrega: number
+          telefone: string | null
+          tipo: string
+          total: number
+        }
+        Insert: {
+          cliente?: string | null
+          created_at?: string
+          criado_por?: string | null
+          cupom?: string | null
+          custo?: number
+          desconto?: number
+          endereco?: string | null
+          id?: string
+          lucro?: number
+          motoboy_id?: string | null
+          numero?: number
+          status?: string
+          subtotal?: number
+          taxa_entrega?: number
+          telefone?: string | null
+          tipo?: string
+          total?: number
+        }
+        Update: {
+          cliente?: string | null
+          created_at?: string
+          criado_por?: string | null
+          cupom?: string | null
+          custo?: number
+          desconto?: number
+          endereco?: string | null
+          id?: string
+          lucro?: number
+          motoboy_id?: string | null
+          numero?: number
+          status?: string
+          subtotal?: number
+          taxa_entrega?: number
+          telefone?: string | null
+          tipo?: string
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendas_motoboy_id_fkey"
+            columns: ["motoboy_id"]
+            isOneToOne: false
+            referencedRelation: "motoboys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      is_manager: { Args: { _user_id: string }; Returns: boolean }
+      is_staff: { Args: { _user_id: string }; Returns: boolean }
+      registrar_venda: {
+        Args: {
+          _cliente?: string
+          _cupom?: string
+          _endereco?: string
+          _itens: Json
+          _telefone?: string
+          _tipo?: string
+        }
+        Returns: string
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "gerente" | "atendente"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +491,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "gerente", "atendente"],
+    },
   },
 } as const
