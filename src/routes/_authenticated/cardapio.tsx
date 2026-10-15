@@ -36,13 +36,13 @@ function Cardapio() {
     if (!ed) return;
     const row = { nome: ed.nome, categoria: ed.categoria, preco: Number(ed.preco), descricao: ed.descricao || null, ativo: ed.ativo };
     let id = ed.id;
-    if (id) { const { error } = await supabase.from("produtos").update(row).eq("id", id); if (error) return toast.error(error.message); }
-    else { const { data, error } = await supabase.from("produtos").insert(row).select("id").single(); if (error) return toast.error(error.message); id = data.id; }
+    if (id) { const { error } = await supabase.from("produtos").update(row).eq("id", id); if (error) { toast.error(error.message); return; } }
+    else { const { data, error } = await supabase.from("produtos").insert(row).select("id").single(); if (error) { toast.error(error.message); return; } id = data.id; }
     await supabase.from("receitas").delete().eq("produto_id", id!);
     const linhas = ed.linhas.filter((l) => l.ingrediente_id && Number(l.quantidade) > 0);
     if (linhas.length) {
       const { error } = await supabase.from("receitas").insert(linhas.map((l) => ({ produto_id: id!, ingrediente_id: l.ingrediente_id, quantidade: Number(l.quantidade) })));
-      if (error) return toast.error(error.message);
+      if (error) { toast.error(error.message); return; }
     }
     toast.success("Produto salvo"); setEd(null);
     qc.invalidateQueries({ queryKey: ["produtos"] }); qc.invalidateQueries({ queryKey: ["receitas"] });

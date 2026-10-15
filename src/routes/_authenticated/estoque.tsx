@@ -33,21 +33,21 @@ function Estoque() {
     if (!form) return;
     const row = { nome: form.nome, unidade: form.unidade, quantidade: Number(form.quantidade), estoque_minimo: Number(form.estoque_minimo), custo_unitario: Number(form.custo_unitario), validade: form.validade || null };
     const { error } = form.id ? await supabase.from("ingredientes").update(row).eq("id", form.id) : await supabase.from("ingredientes").insert(row);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Ingrediente salvo"); setForm(null); refresh();
   }
   async function darEntrada() {
     if (!entrada) return;
     const q = Number(entrada.qtd);
-    if (!(q > 0)) return toast.error("Quantidade inválida");
+    if (!(q > 0)) { toast.error("Quantidade inválida"); return; }
     const { error } = await supabase.from("ingredientes").update({ quantidade: Number(entrada.ing.quantidade) + q }).eq("id", entrada.ing.id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Entrada registrada"); setEntrada(null); refresh();
   }
   async function excluir(id: string) {
     if (!confirm("Excluir este ingrediente?")) return;
     const { error } = await supabase.from("ingredientes").delete().eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     refresh();
   }
 

@@ -33,20 +33,20 @@ function Pdv() {
   const sub = linhas.reduce((s, l) => s + Number(l.p.preco) * l.q, 0);
   const cupom = cupons.find((c) => c.ativo && c.codigo.toUpperCase() === cli.cupom.trim().toUpperCase());
   const desc = cupom ? sub * Number(cupom.percentual) / 100 : 0;
-  const taxa = tipo === "delivery" ? Number(config.taxa_entrega) : 0;
+  const taxa = tipo === "delivery" ? Number(config?.taxa_entrega ?? 0) : 0;
   const total = sub - desc + taxa;
 
   async function finalizar() {
-    if (!linhas.length) return toast.error("Adicione itens ao pedido");
-    if (tipo === "delivery" && (!cli.cliente || !cli.endereco)) return toast.error("Informe nome e endereço para delivery");
+    if (!linhas.length) { toast.error("Adicione itens ao pedido"); return; }
+    if (tipo === "delivery" && (!cli.cliente || !cli.endereco)) { toast.error("Informe nome e endereço para delivery"); return; }
     setBusy(true);
     const { error } = await supabase.rpc("registrar_venda", {
       _itens: linhas.map((l) => ({ produto_id: l.p.id, quantidade: l.q })),
-      _tipo: tipo, _cliente: cli.cliente || undefined, _telefone: cli.telefone || undefined,
-      _endereco: cli.endereco || undefined, _cupom: cli.cupom.trim() || undefined,
+      _tipo: tipo, ...(cli.cliente ? { _cliente: cli.cliente } : {}), ...(cli.telefone ? { _telefone: cli.telefone } : {}),
+      ...(cli.endereco ? { _endereco: cli.endereco } : {}), ...(cli.cupom.trim() ? { _cupom: cli.cupom.trim() } : {}),
     });
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Venda registrada!");
     setCart({}); setCli({ cliente: "", telefone: "", endereco: "", cupom: "" });
     qc.invalidateQueries({ queryKey: ["vendas"] }); qc.invalidateQueries({ queryKey: ["ingredientes"] });
