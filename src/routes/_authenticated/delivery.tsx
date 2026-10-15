@@ -28,7 +28,7 @@ function Delivery() {
 
   async function update(id: string, patch: { status?: string; motoboy_id?: string | null }) {
     const { error } = await supabase.from("vendas").update(patch).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     qc.invalidateQueries({ queryKey: ["vendas"] });
   }
 

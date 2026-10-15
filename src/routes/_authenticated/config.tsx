@@ -20,7 +20,7 @@ function Config() {
   const { data: motoboys } = useSuspenseQuery(motoboysQ);
   const { data: cupons } = useSuspenseQuery(cuponsQ);
   const qc = useQueryClient();
-  const [loja, setLoja] = useState({ abre: cfg.abre.slice(0, 5), fecha: cfg.fecha.slice(0, 5), taxa: String(cfg.taxa_entrega), som: cfg.som_alerta });
+  const [loja, setLoja] = useState({ abre: cfg!.abre.slice(0, 5), fecha: cfg!.fecha.slice(0, 5), taxa: String(cfg!.taxa_entrega), som: cfg!.som_alerta });
   const [moto, setMoto] = useState({ nome: "", telefone: "" });
   const [cup, setCup] = useState({ codigo: "", percentual: "10" });
   const done = (k: string) => (r: { error: { message: string } | null }) => { if (r.error) toast.error(r.error.message); else { toast.success("Salvo"); qc.invalidateQueries({ queryKey: [k] }); } };
