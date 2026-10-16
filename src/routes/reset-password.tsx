@@ -45,7 +45,7 @@ function ResetPasswordPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (password !== confirm) return toast.error("As senhas não coincidem.");
+    if (password !== confirm) { toast.error("As senhas não coincidem."); return; }
     setBusy(true);
     try {
       const { error } = await supabase.auth.updateUser({ password });
