@@ -31,7 +31,7 @@ function ResetPasswordPage() {
     const hash = window.location.hash;
     if (hash.includes("type=recovery")) {
       setReady(true);
-      return;
+      return undefined;
     }
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") setReady(true);

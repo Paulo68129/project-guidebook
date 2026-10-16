@@ -36,9 +36,10 @@ export const cuponsQ = queryOptions({
   queryKey: ["cupons"],
   queryFn: async () => must(await supabase.from("cupons").select("*").order("codigo")),
 });
+export type LojaConfig = Tables<"loja_config">;
 export const configQ = queryOptions({
   queryKey: ["config"],
-  queryFn: async () => must(await supabase.from("loja_config").select("*").eq("id", 1).single()),
+  queryFn: async () => must(await supabase.from("loja_config").select("*").eq("id", 1).single()) as LojaConfig,
 });
 
 /** Vendas dos últimos N dias, paginando além do limite de 1000 linhas. */
