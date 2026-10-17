@@ -119,6 +119,54 @@ export type Database = {
         }
         Relationships: []
       }
+      pedidos_online: {
+        Row: {
+          cliente: string
+          created_at: string
+          cupom: string | null
+          desconto: number
+          endereco: string
+          id: string
+          itens: Json
+          status: string
+          subtotal: number
+          taxa_entrega: number
+          telefone: string
+          token: string
+          total: number
+        }
+        Insert: {
+          cliente: string
+          created_at?: string
+          cupom?: string | null
+          desconto?: number
+          endereco: string
+          id?: string
+          itens: Json
+          status?: string
+          subtotal: number
+          taxa_entrega?: number
+          telefone: string
+          token: string
+          total: number
+        }
+        Update: {
+          cliente?: string
+          created_at?: string
+          cupom?: string | null
+          desconto?: number
+          endereco?: string
+          id?: string
+          itens?: Json
+          status?: string
+          subtotal?: number
+          taxa_entrega?: number
+          telefone?: string
+          token?: string
+          total?: number
+        }
+        Relationships: []
+      }
       produtos: {
         Row: {
           ativo: boolean
@@ -126,6 +174,7 @@ export type Database = {
           created_at: string | null
           descricao: string | null
           id: string
+          imagem_path: string | null
           nome: string
           preco: number
         }
@@ -135,6 +184,7 @@ export type Database = {
           created_at?: string | null
           descricao?: string | null
           id?: string
+          imagem_path?: string | null
           nome: string
           preco?: number
         }
@@ -144,6 +194,7 @@ export type Database = {
           created_at?: string | null
           descricao?: string | null
           id?: string
+          imagem_path?: string | null
           nome?: string
           preco?: number
         }
@@ -342,6 +393,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      catalogo_online: { Args: never; Returns: Json }
+      consultar_pedido_online: { Args: { _token: string }; Returns: Json }
+      criar_pedido_online: {
+        Args: {
+          _cliente: string
+          _cupom?: string
+          _endereco: string
+          _itens: Json
+          _telefone: string
+          _token: string
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
