@@ -104,3 +104,27 @@
 @utility bg-ember-gradient { background-image: var(--gradient-ember); }
 @utility bg-hearth { background-image: var(--gradient-hearth); }
 @utility shadow-glow { box-shadow: var(--shadow-glow); }
+
+/* Oculta todos os elementos injetados pelo Lovable */
+.lovable-badge,
+.lovable-badge *,
+a[href*="lovable.dev"],
+a[href*="lovable.dev"] *,
+[class*="lovable"],
+[class*="Lovable"],
+[id*="lovable"],
+[id*="Lovable"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Força cor preta em pseudo-elementos que possam conter corações do Lovable */
+/* Isso faz o coração ficar invisível no fundo escuro do site */
+body > * > ::before,
+body > * > ::after {
+  color: black !important;
+}

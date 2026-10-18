@@ -173,6 +173,7 @@ export type Database = {
           categoria: string
           created_at: string | null
           descricao: string | null
+          foto_url: string | null
           id: string
           imagem_path: string | null
           nome: string
@@ -183,6 +184,7 @@ export type Database = {
           categoria?: string
           created_at?: string | null
           descricao?: string | null
+          foto_url?: string | null
           id?: string
           imagem_path?: string | null
           nome: string
@@ -193,6 +195,7 @@ export type Database = {
           categoria?: string
           created_at?: string | null
           descricao?: string | null
+          foto_url?: string | null
           id?: string
           imagem_path?: string | null
           nome?: string

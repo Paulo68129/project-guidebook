@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { brl, motoboysQ, vendasQ } from "@/lib/data";
+import { brl, motoboysQ, vendasQ, type Venda } from "@/lib/data";
 import { PageHeader, RouteError } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
+import { NFCEPrint } from "@/components/NFCEPrint";
 
 export const Route = createFileRoute("/_authenticated/delivery")({
   head: () => ({ meta: [{ title: "Delivery — PizzaStockAI" }, { name: "description", content: "Acompanhe pedidos de delivery do preparo à entrega." }, { property: "og:title", content: "Delivery — PizzaStockAI" }, { property: "og:description", content: "Quadro de pedidos de delivery." }] }),
@@ -25,10 +27,25 @@ function Delivery() {
   const { data: motoboys } = useSuspenseQuery(motoboysQ);
   const qc = useQueryClient();
   const pedidos = vendas.filter((v) => v.tipo === "delivery");
+  const [nfceVenda, setNfceVenda] = useState<Venda | null>(null);
 
   async function update(id: string, patch: { status?: string; motoboy_id?: string | null }) {
     const { error } = await supabase.from("vendas").update(patch).eq("id", id);
     if (error) { toast.error(error.message); return; }
+    
+    // Se o status mudou para "entregue", mostra a nota fiscal para impressão
+    if (patch.status === "entregue") {
+      const { data: updatedVenda, error: fetchError } = await supabase
+        .from("vendas")
+        .select("*, venda_itens(*)")
+        .eq("id", id)
+        .single();
+      
+      if (!fetchError && updatedVenda) {
+        setNfceVenda(updatedVenda as Venda);
+      }
+    }
+    
     qc.invalidateQueries({ queryKey: ["vendas"] });
   }
 
@@ -67,6 +84,16 @@ function Delivery() {
           );
         })}
       </div>
+
+      {nfceVenda && (
+        <NFCEPrint
+          venda={nfceVenda}
+          onClose={() => setNfceVenda(null)}
+          onPrint={() => {
+            toast.success("Nota fiscal enviada para impressão!");
+          }}
+        />
+      )}
     </div>
   );
 }

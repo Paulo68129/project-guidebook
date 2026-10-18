@@ -12,16 +12,19 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as LojaRouteImport } from './routes/loja'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedAlertasRouteImport } from './routes/_authenticated/alertas'
 import { Route as AuthenticatedCardapioRouteImport } from './routes/_authenticated/cardapio'
 import { Route as AuthenticatedConfigRouteImport } from './routes/_authenticated/config'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedDeliveryRouteImport } from './routes/_authenticated/delivery'
+import { Route as AuthenticatedEquipeRouteImport } from './routes/_authenticated/equipe'
 import { Route as AuthenticatedEstoqueRouteImport } from './routes/_authenticated/estoque'
 import { Route as AuthenticatedFinanceiroRouteImport } from './routes/_authenticated/financeiro'
 import { Route as AuthenticatedPdvRouteImport } from './routes/_authenticated/pdv'
 import { Route as AuthenticatedPrevisoesRouteImport } from './routes/_authenticated/previsoes'
+import { Route as PagamentoVendaIdRouteImport } from './routes/pagamento/$vendaId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -35,6 +38,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LojaRoute = LojaRouteImport.update({
+  id: '/loja',
+  path: '/loja',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -67,6 +75,11 @@ const AuthenticatedDeliveryRoute = AuthenticatedDeliveryRouteImport.update({
   path: '/delivery',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedEquipeRoute = AuthenticatedEquipeRouteImport.update({
+  id: '/equipe',
+  path: '/equipe',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedEstoqueRoute = AuthenticatedEstoqueRouteImport.update({
   id: '/estoque',
   path: '/estoque',
@@ -87,102 +100,127 @@ const AuthenticatedPrevisoesRoute = AuthenticatedPrevisoesRouteImport.update({
   path: '/previsoes',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const PagamentoVendaIdRoute = PagamentoVendaIdRouteImport.update({
+  id: '/pagamento/$vendaId',
+  path: '/pagamento/$vendaId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/loja': typeof LojaRoute
   '/reset-password': typeof ResetPasswordRoute
   '/alertas': typeof AuthenticatedAlertasRoute
   '/cardapio': typeof AuthenticatedCardapioRoute
   '/config': typeof AuthenticatedConfigRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/delivery': typeof AuthenticatedDeliveryRoute
+  '/equipe': typeof AuthenticatedEquipeRoute
   '/estoque': typeof AuthenticatedEstoqueRoute
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/pdv': typeof AuthenticatedPdvRoute
   '/previsoes': typeof AuthenticatedPrevisoesRoute
+  '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/loja': typeof LojaRoute
   '/reset-password': typeof ResetPasswordRoute
   '/alertas': typeof AuthenticatedAlertasRoute
   '/cardapio': typeof AuthenticatedCardapioRoute
   '/config': typeof AuthenticatedConfigRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/delivery': typeof AuthenticatedDeliveryRoute
+  '/equipe': typeof AuthenticatedEquipeRoute
   '/estoque': typeof AuthenticatedEstoqueRoute
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/pdv': typeof AuthenticatedPdvRoute
   '/previsoes': typeof AuthenticatedPrevisoesRoute
+  '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/loja': typeof LojaRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/alertas': typeof AuthenticatedAlertasRoute
   '/_authenticated/cardapio': typeof AuthenticatedCardapioRoute
   '/_authenticated/config': typeof AuthenticatedConfigRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/delivery': typeof AuthenticatedDeliveryRoute
+  '/_authenticated/equipe': typeof AuthenticatedEquipeRoute
   '/_authenticated/estoque': typeof AuthenticatedEstoqueRoute
   '/_authenticated/financeiro': typeof AuthenticatedFinanceiroRoute
   '/_authenticated/pdv': typeof AuthenticatedPdvRoute
   '/_authenticated/previsoes': typeof AuthenticatedPrevisoesRoute
+  '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/auth'
+    | '/loja'
     | '/reset-password'
     | '/alertas'
     | '/cardapio'
     | '/config'
     | '/dashboard'
     | '/delivery'
+    | '/equipe'
     | '/estoque'
     | '/financeiro'
     | '/pdv'
     | '/previsoes'
+    | '/pagamento/$vendaId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
+    | '/loja'
     | '/reset-password'
     | '/alertas'
     | '/cardapio'
     | '/config'
     | '/dashboard'
     | '/delivery'
+    | '/equipe'
     | '/estoque'
     | '/financeiro'
     | '/pdv'
     | '/previsoes'
+    | '/pagamento/$vendaId'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/loja'
     | '/reset-password'
     | '/_authenticated/alertas'
     | '/_authenticated/cardapio'
     | '/_authenticated/config'
     | '/_authenticated/dashboard'
     | '/_authenticated/delivery'
+    | '/_authenticated/equipe'
     | '/_authenticated/estoque'
     | '/_authenticated/financeiro'
     | '/_authenticated/pdv'
     | '/_authenticated/previsoes'
+    | '/pagamento/$vendaId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  LojaRoute: typeof LojaRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  PagamentoVendaIdRoute: typeof PagamentoVendaIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -206,6 +244,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/loja': {
+      id: '/loja'
+      path: '/loja'
+      fullPath: '/loja'
+      preLoaderRoute: typeof LojaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reset-password': {
@@ -250,6 +295,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDeliveryRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/equipe': {
+      id: '/_authenticated/equipe'
+      path: '/equipe'
+      fullPath: '/equipe'
+      preLoaderRoute: typeof AuthenticatedEquipeRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/estoque': {
       id: '/_authenticated/estoque'
       path: '/estoque'
@@ -278,6 +330,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPrevisoesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/pagamento/$vendaId': {
+      id: '/pagamento/$vendaId'
+      path: '/pagamento/$vendaId'
+      fullPath: '/pagamento/$vendaId'
+      preLoaderRoute: typeof PagamentoVendaIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -287,6 +346,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedConfigRoute: typeof AuthenticatedConfigRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDeliveryRoute: typeof AuthenticatedDeliveryRoute
+  AuthenticatedEquipeRoute: typeof AuthenticatedEquipeRoute
   AuthenticatedEstoqueRoute: typeof AuthenticatedEstoqueRoute
   AuthenticatedFinanceiroRoute: typeof AuthenticatedFinanceiroRoute
   AuthenticatedPdvRoute: typeof AuthenticatedPdvRoute
@@ -299,6 +359,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedConfigRoute: AuthenticatedConfigRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDeliveryRoute: AuthenticatedDeliveryRoute,
+  AuthenticatedEquipeRoute: AuthenticatedEquipeRoute,
   AuthenticatedEstoqueRoute: AuthenticatedEstoqueRoute,
   AuthenticatedFinanceiroRoute: AuthenticatedFinanceiroRoute,
   AuthenticatedPdvRoute: AuthenticatedPdvRoute,
@@ -312,7 +373,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  LojaRoute: LojaRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  PagamentoVendaIdRoute: PagamentoVendaIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

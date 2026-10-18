@@ -67,7 +67,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "stylesheet", href: appCss },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;600;700&display=swap" },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
   shellComponent: RootShell,
@@ -99,6 +98,58 @@ function RootComponent() {
     });
     return () => data.subscription.unsubscribe();
   }, [router, queryClient]);
+
+  // Solução principal: JavaScript substitui o coração por caractere invisível (Zero Width Space)
+  // CSS de cor preta atua como camada adicional para qualquer elemento DOM injetado pelo Lovable
+  // O fundo escuro do site (oklch(0.17 0.01 40)) faz com que o preto seja praticamente invisível
+  useEffect(() => {
+    const emojiPattern = /[\u{1F000}-\u{1FAD6}\u{1FAD7}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\p{Emoji}\p{Extended_Pictographic}]/gu;
+    // Padrão específico para todos os tipos de coração
+    const heartPattern = /[♥❤💖💗💕💓💝💘💞💟❣️🖤🤍🧡💛💚💙💜]/gu;
+
+    const fixTitle = () => {
+      const title = document.title;
+      // Substitui corações por Zero Width Space (caractere invisível) antes de limpar
+      const heartsReplaced = title.replace(heartPattern, "\u200B");
+      // Remove TODOS os emojis restantes e caracteres não-alfanuméricos do início
+      const cleaned = heartsReplaced
+        .replace(emojiPattern, "")
+        .replace(/^[^\w\u00C0-\u024F]*/, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+      // Sempre força o título limpo se houver diferença ou se houver emoji/coração
+      if (cleaned && (cleaned !== title || emojiPattern.test(title) || heartPattern.test(title))) {
+        document.title = cleaned;
+      }
+    };
+
+    // Injeta CSS para forçar cor preta em qualquer elemento injetado pelo Lovable
+    const styleId = "lovable-heart-black";
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement("style");
+      style.id = styleId;
+      style.textContent = `
+        /* Camada adicional: força cor preta em elementos do Lovable para ficar invisível no fundo escuro */
+        [class*="lovable"], [id*="lovable"], [class*="Lovable"], [id*="Lovable"] {
+          color: black !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // Corrige imediatamente ao carregar
+    fixTitle();
+    // Intervalo de 300ms para bloquear reinjeção do Lovable em tempo real
+    const interval = setInterval(fixTitle, 300);
+    // Observa mudanças no <head> para detectar injeção dinâmica
+    const observer = new MutationObserver(() => fixTitle());
+    observer.observe(document.head, { childList: true, subtree: true });
+    return () => {
+      clearInterval(interval);
+      observer.disconnect();
+    };
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

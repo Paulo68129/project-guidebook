@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { Flame, Package, Bike, LineChart, Brain, ShieldCheck } from "lucide-react";
+import { Flame, Package, Bike, LineChart, Brain, ShieldCheck, ShoppingCart } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -42,7 +42,10 @@ function Index() {
           Menos desperdício, nenhuma ruptura no pico e compras guiadas por previsão de demanda.
         </p>
         <div className="mt-10 flex gap-3">
-          <Button asChild size="lg" className="bg-ember-gradient shadow-glow"><Link to="/auth">Acessar o sistema</Link></Button>
+          <Button asChild size="lg" className="bg-ember-gradient shadow-glow"><Link to="/loja">
+            <ShoppingCart className="mr-2 h-5 w-5" /> Peça Online
+          </Link></Button>
+          <Button asChild variant="outline" size="lg"><Link to="/auth">Acessar o sistema</Link></Button>
         </div>
         <div className="mt-24 grid gap-4 md:grid-cols-3">
           {features.map((f) => (

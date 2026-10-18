@@ -1,11 +1,10 @@
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
-import { LayoutDashboard, ShoppingCart, Bike, Package, Pizza, Wallet, Brain, Bell, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Bike, Package, Pizza, Wallet, Brain, Bell, Settings, LogOut, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/useRole";
-import { toast } from "sonner";
 import { Clock } from "./Clock";
+import { OrderBell } from "./OrderBell";
 
 const nav = [
   { to: "/dashboard", label: "Central", icon: LayoutDashboard },
@@ -16,41 +15,14 @@ const nav = [
   { to: "/alertas", label: "Alertas", icon: Bell },
   { to: "/financeiro", label: "Financeiro", icon: Wallet, manager: true },
   { to: "/previsoes", label: "Previsões", icon: Brain, manager: true },
+  { to: "/equipe", label: "Equipe", icon: Users, manager: true },
   { to: "/config", label: "Configurações", icon: Settings, manager: true },
 ] as const;
-
-export function beep() {
-  try {
-    const ctx = new AudioContext();
-    [0, 0.25].forEach((t) => {
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
-      g.gain.setValueAtTime(0.2, ctx.currentTime + t);
-      o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.15);
-    });
-  } catch { /* sem áudio */ }
-}
 
 export function AppShell() {
   const { role, email, isManager } = useRole();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const somRef = useRef(true);
-
-  useEffect(() => {
-    supabase.from("loja_config").select("som_alerta").eq("id", 1).single().then(({ data }) => { somRef.current = data?.som_alerta ?? true; });
-    const ch = supabase.channel("vendas-rt")
-      .on("postgres_changes", { event: "*", schema: "public", table: "vendas" }, (p) => {
-        qc.invalidateQueries({ queryKey: ["vendas"] });
-        qc.invalidateQueries({ queryKey: ["ingredientes"] });
-        const row = p.new as { tipo?: string; numero?: number } | null;
-        if (p.eventType === "INSERT" && row?.tipo === "delivery") {
-          toast.info(`Novo pedido de delivery #${row.numero}`);
-          if (somRef.current) beep();
-        }
-      }).subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [qc]);
 
   async function sair() {
     await qc.cancelQueries(); qc.clear();
@@ -86,8 +58,12 @@ export function AppShell() {
               <Link key={n.to} to={n.to} className="rounded-md p-2 text-muted-foreground" activeProps={{ className: "text-primary" }}><n.icon className="h-4 w-4" /></Link>
             ))}
           </div>
-          <div className="hidden md:block" />
-          <Clock />
+          <div className="hidden items-center gap-3 md:flex">
+            <OrderBell />
+          </div>
+          <div className="flex items-center gap-3">
+            <Clock />
+          </div>
         </header>
         <main className="flex-1 p-6"><Outlet /></main>
       </div>

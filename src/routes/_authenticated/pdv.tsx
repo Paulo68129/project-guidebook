@@ -4,10 +4,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { brl, configQ, cuponsQ, produtosQ } from "@/lib/data";
+import { brl, configQ, cuponsQ, produtosQ, type Venda } from "@/lib/data";
 import { PageHeader, Panel, RouteError } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NFCEPrint } from "@/components/NFCEPrint";
 
 export const Route = createFileRoute("/_authenticated/pdv")({
   head: () => ({ meta: [{ title: "PDV — PizzaStockAI" }, { name: "description", content: "Ponto de venda de balcão e delivery." }, { property: "og:title", content: "PDV — PizzaStockAI" }, { property: "og:description", content: "Ponto de venda da pizzaria." }] }),
@@ -25,6 +26,7 @@ function Pdv() {
   const [tipo, setTipo] = useState<"balcao" | "delivery">("balcao");
   const [cli, setCli] = useState({ cliente: "", telefone: "", endereco: "", cupom: "" });
   const [busy, setBusy] = useState(false);
+  const [nfceVenda, setNfceVenda] = useState<Venda | null>(null);
 
   const ativos = produtos.filter((p) => p.ativo);
   const cats = [...new Set(ativos.map((p) => p.categoria))];
@@ -48,6 +50,19 @@ function Pdv() {
     setBusy(false);
     if (error) { toast.error(error.message); return; }
     toast.success("Venda registrada!");
+
+    // Busca a venda recém-criada para imprimir a nota fiscal
+    const { data: ultimaVenda, error: fetchError } = await supabase
+      .from("vendas")
+      .select("*, venda_itens(*)")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!fetchError && ultimaVenda) {
+      setNfceVenda(ultimaVenda as Venda);
+    }
+
     setCart({}); setCli({ cliente: "", telefone: "", endereco: "", cupom: "" });
     qc.invalidateQueries({ queryKey: ["vendas"] }); qc.invalidateQueries({ queryKey: ["ingredientes"] });
   }
@@ -109,6 +124,16 @@ function Pdv() {
           <Button className="mt-4 w-full" size="lg" disabled={busy} onClick={finalizar}>{busy ? "Registrando..." : "Finalizar venda"}</Button>
         </Panel>
       </div>
+
+      {nfceVenda && (
+        <NFCEPrint
+          venda={nfceVenda}
+          onClose={() => setNfceVenda(null)}
+          onPrint={() => {
+            toast.success("Nota fiscal enviada para impressão!");
+          }}
+        />
+      )}
     </div>
   );
 }
