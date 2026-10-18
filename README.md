@@ -1,7 +1,7 @@
 # 🍕 PizzaStockAI
 Sistema Inteligente de Gestão para Pizzarias
 
-Estoque • PDV • Delivery • Financeiro • Business Intelligence • IA
+Estoque • PDV • Delivery • PIX • Loja Online • Financeiro • Business Intelligence • IA
 
 TanStack Start React TypeScript Tailwind Supabase Vite Vitest
 
@@ -21,12 +21,14 @@ Detalhe	Valor
 Ficha	#121
 Data	16/10/2026
 Valor	R$ 66,90
+Pagamento	PIX QR Code válido
 Sumário
 🚀 Demo e Apresentação
 📖 Visão geral
 🎯 Problema Resolvido
 📈 Evolução do Projeto
 ✨ Funcionalidades
+💳 Pagamento PIX
 📊 Métricas do Projeto
 🤝 Casos de Uso
 ⭐ Diferenciais Competitivos
@@ -72,6 +74,7 @@ sugere compras com base em previsão de demanda calculada sobre o histórico de 
 ✅ Operação centralizada
 ✅ Estoque atualizado automaticamente
 ✅ Delivery integrado em tempo real
+✅ Pagamento PIX com QR Code dinâmico
 ✅ Controle financeiro completo
 ✅ Inteligência para compras
 ✅ Indicadores para tomada de decisão
@@ -81,7 +84,7 @@ Stack	Python, SQLAlchemy, SQLite/PostgreSQL, Machine Learning
 Limitações	Comunicação não era em tempo real, PDV apresentava gargalos sob carga, fluxo de delivery dependia de atualizações manuais
 Versão 2.0 (Atual)
 Stack	React 19, TypeScript, Supabase, PostgreSQL, Realtime, TanStack Query, TanStack Router
-Melhorias	✅ Atualizações em tempo real, ✅ Melhor experiência do usuário, ✅ Maior desempenho, ✅ Delivery conectado ao painel administrativo, ✅ Sistema preparado para escalabilidade, ✅ Arquitetura orientada a eventos
+Melhorias	✅ Atualizações em tempo real, ✅ Melhor experiência do usuário, ✅ Maior desempenho, ✅ Delivery conectado ao painel administrativo, ✅ Sistema preparado para escalabilidade, ✅ Arquitetura orientada a eventos, ✅ Pagamento PIX integrado, ✅ Loja Online completa
 ✨ Funcionalidades
 🛒 PDV Inteligente
 Venda Balcão e Venda Delivery
@@ -92,6 +95,17 @@ Baixa automática do estoque
 Finalização via função atômica no banco (registrar_venda)
 Cupom Exemplo: BEMVINDO15
 
+🛒 Loja Online
+Experiência do Cliente:
+
+Catálogo completo com fotos e descrições
+Carrinho de compras interativo
+Formulário de dados para entrega
+Redirecionamento automático para página de pagamento
+Horário de funcionamento exibido em tempo real
+Fluxo Completo:
+
+Montar Carrinho → Inserir Dados → Finalizar Pedido → Pagar via PIX
 🚚 Delivery Online
 Área do Cliente:
 
@@ -103,6 +117,32 @@ Gestão de Pedidos:
 Atualização em tempo real com notificação sonora e alertas visuais
 Controle completo do fluxo com quadro Kanban
 Novos Pedidos → Em Preparo → Saiu para Entrega → Entregue
+💳 Pagamento PIX
+QR Code Dinâmico:
+
+Geração automática do QR Code PIX EMV conforme padrão do Banco Central
+Valor fixo da transação no código
+TXID único para rastreamento de cada pagamento
+CRC16-CCITT válido para aceitação pelos apps bancários
+Modal de Pagamento:
+
+Timer regressivo visual de 5 minutos (verde → amarelo → vermelho)
+Botão "Copiar código PIX" com feedback visual
+Toggle para mostrar/ocultar o BR Code completo
+Instruções passo a passo de como pagar
+Dados sensíveis mascarados na tela (chave PIX e telefone)
+Impressão Térmica:
+
+QR Code no cupom para pagamento rápido
+Seção de taxas fiscais (ICMS, PIS, COFINS, ISS)
+Beneficiário exibido como "PizzaStockAI"
+Chave PIX e telefone mascarados para segurança
+Segurança:
+
+Nome completo protegido; exibição usa marca da loja
+Chave PIX mascarada: ***.067.907-**
+Telefone mascarado: (21) 99319-****
+QR Code contém dados completos para leitura bancária
 📦 Gestão de Estoque
 Cadastro de produtos com controle de quantidade
 Custo unitário e data de validade
@@ -153,6 +193,8 @@ Investimento estimado: R$ 1.488,59
 Módulo	Descrição
 Central (Dashboard)	Faturamento e lucro do dia, deliveries em aberto, alertas de estoque, gráfico de 14 dias e ranking dos 5 produtos mais vendidos (30 dias).
 PDV	Montagem de pedido por toque, alternância Balcão/Delivery, cupom de desconto, taxa de entrega automática e finalização via função atômica no banco (registrar_venda).
+Loja Online	Catálogo público com fotos, carrinho interativo, formulário de entrega e redirecionamento para pagamento PIX.
+Pagamento PIX	QR Code EMV válido, timer de 5 minutos, botão copiar código, dados mascarados e taxas fiscais no cupom.
 Delivery	Quadro com colunas Novos → Em preparo → Saiu para entrega → Entregues, atribuição de motoboy e cancelamento. Exibe as últimas 48h.
 Estoque	CRUD de ingredientes, busca, entrada de mercadoria, destaque de itens abaixo do mínimo e vencidos, e valor total em estoque.
 Cardápio	Cadastro de produtos com categoria, preço, disponibilidade e ficha técnica (receita). Mostra custo e margem (alerta visual abaixo de 30%).
@@ -178,6 +220,8 @@ Motoboy	Receber entregas, atualizar status de pedidos
 ⭐ Diferenciais Competitivos
 ✅ Estoque integrado ao PDV
 ✅ Delivery em tempo real
+✅ Pagamento PIX com QR Code válido
+✅ Loja Online completa
 ✅ Controle de validade
 ✅ Sugestão inteligente de compras
 ✅ Financeiro integrado
@@ -196,6 +240,7 @@ Componentes baseados em Radix UI (padrão shadcn/ui)
 lucide-react, sonner, cmdk, vaul
 Gráficos com Recharts
 Formulários: react-hook-form + zod
+QR Code: qrcode para geração de imagens PIX
 Backend
 Supabase (Auth, Postgres, RPC, Realtime)
 @supabase/supabase-js
@@ -242,6 +287,8 @@ Financeiro registra receita e custo automaticamente
 Caminho	Acesso	Descrição
 /	Público	Landing page
 /auth	Público	Login, cadastro e Google OAuth
+/loja	Público	Loja Online - catálogo e carrinho
+/pagamento/$vendaId	Público	Página de pagamento PIX com QR Code
 /dashboard	Autenticado	Central
 /pdv	Autenticado	Ponto de venda
 /delivery	Autenticado	Quadro de pedidos
@@ -338,14 +385,17 @@ test:watch	vitest	Testes em modo watch
 │   ├── components/
 │   │   ├── ui/                    # Componentes base (shadcn/Radix)
 │   │   ├── ui-kit.tsx             # PageHeader, Panel, Stat, RouteError
-│   │   └── AppShell.tsx           # Layout autenticado
+│   │   ├── AppShell.tsx           # Layout autenticado
+│   │   ├── NFCEPrint.tsx          # Cupom térmico com QR Code PIX
+│   │   └── PixPaymentModal.tsx    # Modal de pagamento com timer e copiar código
 │   ├── hooks/useRole.ts
 │   ├── integrations/
 │   │   ├── supabase/client.ts
 │   │   └── lovable/index.ts
 │   ├── lib/
 │   │   ├── data.ts                # Queries, tipos e helpers (brl, num, dayKey...)
-│   │   └── forecast.ts            # Previsão e sugestão de compra
+│   │   ├── forecast.ts            # Previsão e sugestão de compra
+│   │   └── pix.ts                 # Geração de payload PIX EMV QR Code
 │   ├── router.tsx
 │   ├── routeTree.gen.ts           # Gerado automaticamente
 │   ├── server.ts
@@ -378,6 +428,8 @@ Antes de commitar: npm run lint, npm run format e npm run test.
 ✅ Concluído
 Estoque
 PDV
+Loja Online
+Pagamento PIX (QR Code EMV)
 Delivery Online
 Kanban Realtime
 Financeiro
@@ -385,8 +437,9 @@ Dashboard BI
 Login Google
 Impressão 80mm
 Inteligência de Compras
+Taxas fiscais no cupom
 🚧 Em Desenvolvimento
-PIX Automático
+Confirmação automática de pagamento PIX
 WhatsApp Business
 Impressão automática sem diálogo
 Relatórios avançados
