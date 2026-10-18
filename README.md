@@ -624,7 +624,8 @@ O build é feito pelo Nitro, e o alvo padrão definido pela configuração da Lo
 ### Desenvolvedores
 
 - Paulo Roberto Silva de Oliveira Júnior
-- João Gabriel
+- João
+- Gabriel
 - João Daniel
 - Douglas Lopes
 - Samuel
@@ -635,8 +636,7 @@ O build é feito pelo Nitro, e o alvo padrão definido pela configuração da Lo
 
 ### 🏫 Instituições
 
-- Serratec
-- SEBRAE
+
 - UNIFESO
 
 ---
