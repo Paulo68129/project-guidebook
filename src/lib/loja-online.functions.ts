@@ -226,7 +226,13 @@ export const consultarPedidoOnline = createServerFn({ method: "GET" }).handler(
         throw new Error("Pedido não encontrado");
       }
       
-      return pedido;
+      // Garante que itens seja sempre um array
+      const normalizedPedido = {
+        ...pedido,
+        itens: Array.isArray(pedido.itens) ? pedido.itens : [],
+      };
+      
+      return normalizedPedido;
     }
     
     if (error) {
@@ -237,6 +243,22 @@ export const consultarPedidoOnline = createServerFn({ method: "GET" }).handler(
       throw new Error("Pedido não encontrado");
     }
     
-    return data;
+    // Garante que itens seja sempre um array - data pode vir como objeto com chaves diferentes
+    const normalizedData = {
+      id: data.id || "",
+      cliente: data.cliente || "",
+      telefone: data.telefone || "",
+      endereco: data.endereco || "",
+      itens: Array.isArray(data.itens) ? data.itens : [],
+      subtotal: Number(data.subtotal) || 0,
+      desconto: Number(data.desconto) || 0,
+      taxa_entrega: Number(data.taxa_entrega) || 0,
+      total: Number(data.total) || 0,
+      cupom: data.cupom || null,
+      status: data.status || "aguardando_pagamento",
+      created_at: data.created_at || new Date().toISOString(),
+    };
+    
+    return normalizedData;
   }
 );

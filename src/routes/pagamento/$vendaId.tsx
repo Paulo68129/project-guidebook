@@ -58,7 +58,12 @@ function PagamentoPage() {
     queryKey: ["pedido-online", vendaId],
     queryFn: async () => {
       const data = await consultarPedidoOnline({ token: vendaId });
-      return data as PedidoOnline;
+      // Garante que itens seja sempre um array, mesmo se o banco retornar null/undefined
+      const normalized = {
+        ...data,
+        itens: Array.isArray(data.itens) ? data.itens : [],
+      } as PedidoOnline;
+      return normalized;
     },
   });
 
