@@ -20,13 +20,13 @@ Uma plataforma completa para gerenciamento de pizzarias, integrando estoque, pro
 
 ## 🚀 Demo e Apresentação
 
-### 🌐 Demo Online
+### 🌐 Demo Online v1 teste
 
 [Acesse o Demo](https://system-development-7ram.bolt.host/#delivery)
 
-### 🎥 Vídeo Demonstração
+### 🎥 Vídeo Demonstração v2 OFC 
 
-[Assista no Instagram](https://www.instagram.com/reels/DekIWMtNbM4/)
+[Assista no Instagram](https://www.instagram.com/paulo_roberto_dev/reel/DeqPM3-BzjU/)
 
 ### 📦 Pedido Real Validado
 
@@ -652,5 +652,3 @@ O PizzaStockAI representa a união entre **tecnologia, inovação e empreendedor
 ## 📜 Licença
 
 **Privado - Todos os direitos reservados**
-
-© PizzaStockAI 2026
