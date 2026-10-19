@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { brl, Venda } from "@/lib/data";
 import { generatePixPayload, getPixConfig, maskPixChave, maskTelefone } from "@/lib/pix";
+import { getVendaById } from "@/lib/loja-online.functions";
 import QRCode from "qrcode";
 import { ArrowLeft, MapPin, User, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,16 +34,11 @@ function PagamentoPage() {
   const [pixPayload, setPixPayload] = useState<string>("");
   const pixConfig = getPixConfig();
 
-  // Buscar dados da venda
+  // Buscar dados da venda via server function (bypass RLS)
   const { data: venda, isLoading, error } = useQuery({
     queryKey: ["venda", vendaId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("vendas")
-        .select("*, venda_itens(*)")
-        .eq("id", vendaId)
-        .single();
-      if (error) throw error;
+      const data = await getVendaById({ vendaId });
       return data as Venda;
     },
   });

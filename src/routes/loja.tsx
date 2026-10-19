@@ -3,9 +3,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Minus, Plus, Trash2, ShoppingCart, Store, Image, Clock3 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { brl, configQ, produtosQ } from "@/lib/data";
 import { lojaAberta } from "@/components/Clock";
+import { registrarVendaOnline } from "@/lib/loja-online.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -77,31 +77,31 @@ function LojaOnline() {
     }
     setBusy(true);
 
-    const telefone = cliente.telefone.trim();
-    const { data: vendaId, error } = await supabase.rpc("registrar_venda", {
-      _itens: linhas.map((l) => ({ produto_id: l.p.id, quantidade: l.q })),
-      _tipo: "delivery",
-      _cliente: cliente.nome.trim(),
-      _endereco: cliente.endereco.trim(),
-      ...(telefone ? { _telefone: telefone } : {}),
-    });
+    try {
+      const telefone = cliente.telefone.trim();
+      const vendaId = await registrarVendaOnline({
+        itens: linhas.map((l) => ({ produto_id: l.p.id, quantidade: l.q })),
+        cliente: cliente.nome.trim(),
+        endereco: cliente.endereco.trim(),
+        telefone: telefone || undefined,
+      });
 
-    setBusy(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+      toast.success("Pedido realizado com sucesso! 🎉");
+      setCart({});
+      setCliente({ nome: "", telefone: "", endereco: "" });
+      setShowCart(false);
+      qc.invalidateQueries({ queryKey: ["vendas"] });
+      qc.invalidateQueries({ queryKey: ["ingredientes"] });
 
-    toast.success("Pedido realizado com sucesso! 🎉");
-    setCart({});
-    setCliente({ nome: "", telefone: "", endereco: "" });
-    setShowCart(false);
-    qc.invalidateQueries({ queryKey: ["vendas"] });
-    qc.invalidateQueries({ queryKey: ["ingredientes"] });
-
-    // Redirecionar para a página de pagamento
-    if (vendaId) {
-      window.location.href = `/pagamento/${vendaId}`;
+      // Redirecionar para a página de pagamento
+      if (vendaId) {
+        window.location.href = `/pagamento/${vendaId}`;
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erro ao registrar pedido";
+      toast.error(message);
+    } finally {
+      setBusy(false);
     }
   }
 
