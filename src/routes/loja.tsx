@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Minus, Plus, Trash2, ShoppingCart, Store, Image, Clock3 } from "lucide-react";
 import { brl, configQ, produtosQ } from "@/lib/data";
 import { lojaAberta } from "@/components/Clock";
-import { registrarVendaOnline } from "@/lib/loja-online.functions";
+import { criarPedidoOnline } from "@/lib/loja-online.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -75,27 +75,30 @@ function LojaOnline() {
       toast.error("Informe seu nome e endereço");
       return;
     }
+    if (!cliente.telefone.trim()) {
+      toast.error("Informe seu telefone");
+      return;
+    }
     setBusy(true);
 
     try {
       const telefone = cliente.telefone.trim();
-      const vendaId = await registrarVendaOnline({
+      const resultado = await criarPedidoOnline({
         itens: linhas.map((l) => ({ produto_id: l.p.id, quantidade: l.q })),
         cliente: cliente.nome.trim(),
         endereco: cliente.endereco.trim(),
-        telefone: telefone || undefined,
+        telefone: telefone,
       });
 
       toast.success("Pedido realizado com sucesso! 🎉");
       setCart({});
       setCliente({ nome: "", telefone: "", endereco: "" });
       setShowCart(false);
-      qc.invalidateQueries({ queryKey: ["vendas"] });
       qc.invalidateQueries({ queryKey: ["ingredientes"] });
 
-      // Redirecionar para a página de pagamento
-      if (vendaId) {
-        window.location.href = `/pagamento/${vendaId}`;
+      // Redirecionar para a página de pagamento com o token
+      if (resultado && resultado.token) {
+        window.location.href = `/pagamento/${resultado.token}`;
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Erro ao registrar pedido";

@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { brl, Venda } from "@/lib/data";
+import { brl } from "@/lib/data";
 import { generatePixPayload, getPixConfig, maskPixChave, maskTelefone } from "@/lib/pix";
-import { getVendaById } from "@/lib/loja-online.functions";
+import { consultarPedidoOnline } from "@/lib/loja-online.functions";
 import QRCode from "qrcode";
 import { ArrowLeft, MapPin, User, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,25 +28,41 @@ export const Route = createFileRoute("/pagamento/$vendaId")({
   component: PagamentoPage,
 });
 
+// Tipo do pedido online retornado por consultar_pedido_online
+interface PedidoOnline {
+  id: string;
+  cliente: string;
+  telefone: string;
+  endereco: string;
+  itens: Array<{ nome: string; produto_id: string; quantidade: number; preco_unitario: number }>;
+  subtotal: number;
+  desconto: number;
+  taxa_entrega: number;
+  total: number;
+  cupom?: string;
+  status: string;
+  created_at: string;
+}
+
 function PagamentoPage() {
-  const { vendaId } = Route.useParams();
+  const { vendaId } = Route.useParams(); // vendaId é na verdade o token do pedido
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const [pixPayload, setPixPayload] = useState<string>("");
   const pixConfig = getPixConfig();
 
-  // Buscar dados da venda via server function (bypass RLS)
-  const { data: venda, isLoading, error } = useQuery({
-    queryKey: ["venda", vendaId],
+  // Buscar dados do pedido online via server function (anon)
+  const { data: pedido, isLoading, error } = useQuery({
+    queryKey: ["pedido-online", vendaId],
     queryFn: async () => {
-      const data = await getVendaById({ vendaId });
-      return data as Venda;
+      const data = await consultarPedidoOnline({ token: vendaId });
+      return data as PedidoOnline;
     },
   });
 
-  // Gerar QR Code PIX quando a venda for carregada
+  // Gerar QR Code PIX quando o pedido for carregado
   useEffect(() => {
-    if (venda) {
-      const total = Number(venda.total);
+    if (pedido) {
+      const total = Number(pedido.total);
       if (total > 0) {
         const payload = generatePixPayload(total);
         setPixPayload(payload);
@@ -55,7 +71,7 @@ function PagamentoPage() {
           .catch(() => setQrCodeUrl(""));
       }
     }
-  }, [venda]);
+  }, [pedido]);
 
   // Handler quando o timer expira
   const handlePixExpire = () => {
@@ -63,7 +79,7 @@ function PagamentoPage() {
   };
 
   // Calcular taxas fiscais
-  const subtotal = venda ? Number(venda.subtotal) : 0;
+  const subtotal = pedido ? Number(pedido.subtotal) : 0;
   const icmsValue = subtotal * (TAXAS_FISCAIS.icms / 100);
   const pisValue = subtotal * (TAXAS_FISCAIS.pis / 100);
   const cofinsValue = subtotal * (TAXAS_FISCAIS.cofins / 100);
@@ -80,7 +96,7 @@ function PagamentoPage() {
     );
   }
 
-  if (error || !venda) {
+  if (error || !pedido) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="text-center max-w-md mx-auto p-6">
@@ -120,7 +136,7 @@ function PagamentoPage() {
               <CheckCircle className="h-6 w-6 text-green-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Pedido #{venda.numero} Confirmado!</h1>
+              <h1 className="text-lg font-bold text-gray-900">Pedido Confirmado!</h1>
               <p className="text-sm text-gray-600">Escaneie o QR Code abaixo para pagar via PIX</p>
             </div>
           </div>
@@ -134,11 +150,11 @@ function PagamentoPage() {
             </div>
           </div>
 
-          {pixPayload && qrCodeUrl && venda && (
+          {pixPayload && qrCodeUrl && pedido && (
             <PixPaymentModal
               pixPayload={pixPayload}
               qrCodeUrl={qrCodeUrl}
-              valor={Number(venda.total)}
+              valor={Number(pedido.total)}
               beneficiario={pixConfig.nome}
               onExpire={handlePixExpire}
             />
@@ -153,33 +169,33 @@ function PagamentoPage() {
 
           {/* Informações do cliente (dados mascarados) */}
           <div className="mb-4 space-y-2 rounded-lg bg-gray-50 p-4">
-            {venda.cliente && (
+            {pedido.cliente && (
               <div className="flex items-center gap-2 text-sm">
                 <User className="h-4 w-4 text-gray-500" />
                 <span className="text-gray-600">Cliente:</span>
-                <span className="font-medium text-gray-900">{venda.cliente}</span>
+                <span className="font-medium text-gray-900">{pedido.cliente}</span>
               </div>
             )}
-            {venda.telefone && (
+            {pedido.telefone && (
               <div className="flex items-center gap-2 text-sm">
                 <span className="h-4 w-4 text-gray-500">📞</span>
                 <span className="text-gray-600">Telefone:</span>
-                <span className="font-medium text-gray-900">{maskTelefone(venda.telefone)}</span>
+                <span className="font-medium text-gray-900">{maskTelefone(pedido.telefone)}</span>
               </div>
             )}
-            {venda.endereco && (
+            {pedido.endereco && (
               <div className="flex items-center gap-2 text-sm">
                 <MapPin className="h-4 w-4 text-gray-500" />
                 <span className="text-gray-600">Endereço:</span>
-                <span className="font-medium text-gray-900">{venda.endereco}</span>
+                <span className="font-medium text-gray-900">{pedido.endereco}</span>
               </div>
             )}
           </div>
 
           {/* Itens do pedido */}
           <div className="mb-4 space-y-3">
-            {venda.venda_itens.map((item) => (
-              <div key={item.id} className="flex items-center justify-between border-b pb-3 last:border-0">
+            {pedido.itens.map((item, idx) => (
+              <div key={idx} className="flex items-center justify-between border-b pb-3 last:border-0">
                 <div>
                   <p className="font-medium text-gray-900">{item.nome}</p>
                   <p className="text-sm text-gray-500">
@@ -197,23 +213,23 @@ function PagamentoPage() {
           <div className="space-y-2 border-t pt-4">
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Subtotal:</span>
-              <span className="text-gray-900">{brl(Number(venda.subtotal))}</span>
+              <span className="text-gray-900">{brl(Number(pedido.subtotal))}</span>
             </div>
-            {Number(venda.desconto) > 0 && (
+            {Number(pedido.desconto) > 0 && (
               <div className="flex justify-between text-sm text-green-600">
                 <span>Desconto:</span>
-                <span>-{brl(Number(venda.desconto))}</span>
+                <span>-{brl(Number(pedido.desconto))}</span>
               </div>
             )}
-            {Number(venda.taxa_entrega) > 0 && (
+            {Number(pedido.taxa_entrega) > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Taxa de entrega:</span>
-                <span className="text-gray-900">{brl(Number(venda.taxa_entrega))}</span>
+                <span className="text-gray-900">{brl(Number(pedido.taxa_entrega))}</span>
               </div>
             )}
             <div className="flex justify-between border-t pt-3 text-lg font-bold">
               <span className="text-gray-900">Total:</span>
-              <span className="text-primary">{brl(Number(venda.total))}</span>
+              <span className="text-primary">{brl(Number(pedido.total))}</span>
             </div>
           </div>
         </div>

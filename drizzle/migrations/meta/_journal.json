@@ -15,6 +15,13 @@
       "when": 1792205912580,
       "tag": "0001_customer_delivery_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1760928000000,
+      "tag": "0002_fix_online_sales",
+      "breakpoints": true
     }
   ]
 }
