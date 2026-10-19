@@ -197,19 +197,23 @@ function PagamentoPage() {
 
           {/* Itens do pedido */}
           <div className="mb-4 space-y-3">
-            {pedido.itens.map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between border-b pb-3 last:border-0">
-                <div>
-                  <p className="font-medium text-gray-900">{item.nome}</p>
-                  <p className="text-sm text-gray-500">
-                    {item.quantidade}x {brl(Number(item.preco_unitario))}
-                  </p>
+            {pedido.itens && pedido.itens.length > 0 ? (
+              pedido.itens.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between border-b pb-3 last:border-0">
+                  <div>
+                    <p className="font-medium text-gray-900">{item.nome}</p>
+                    <p className="text-sm text-gray-500">
+                      {item.quantidade}x {brl(Number(item.preco_unitario))}
+                    </p>
+                  </div>
+                  <span className="font-semibold text-gray-900">
+                    {brl(Number(item.preco_unitario) * item.quantidade)}
+                  </span>
                 </div>
-                <span className="font-semibold text-gray-900">
-                  {brl(Number(item.preco_unitario) * item.quantidade)}
-                </span>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 text-center py-4">Nenhum item no pedido</p>
+            )}
           </div>
 
           {/* Totais */}

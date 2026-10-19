@@ -69,14 +69,18 @@ export function OnlineOrderNFCE({ pedido, onPrint, onClose }: OnlineOrderNFCEPro
         <div className="border-t border-b border-black py-2 mb-3">
           <p className="text-xs font-bold mb-2">ITENS DO PEDIDO</p>
           <div className="space-y-1">
-            {pedido.itens.map((item, idx) => (
-              <div key={idx} className="text-xs flex justify-between">
-                <span>
-                  {item.quantidade}x {item.nome}
-                </span>
-                <span>{brl(Number(item.preco_unitario) * item.quantidade)}</span>
-              </div>
-            ))}
+            {pedido.itens && pedido.itens.length > 0 ? (
+              pedido.itens.map((item, idx) => (
+                <div key={idx} className="text-xs flex justify-between">
+                  <span>
+                    {item.quantidade}x {item.nome}
+                  </span>
+                  <span>{brl(Number(item.preco_unitario) * item.quantidade)}</span>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-gray-500 text-center">Nenhum item no pedido</p>
+            )}
           </div>
         </div>
 
