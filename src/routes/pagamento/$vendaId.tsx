@@ -5,10 +5,12 @@ import { brl } from "@/lib/data";
 import { generatePixPayload, getPixConfig, maskPixChave, maskTelefone } from "@/lib/pix";
 import { consultarPedidoOnline } from "@/lib/loja-online.functions";
 import QRCode from "qrcode";
-import { ArrowLeft, MapPin, User, CheckCircle } from "lucide-react";
+import { ArrowLeft, MapPin, User, CheckCircle, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PixPaymentModal } from "@/components/PixPaymentModal";
+import { OnlineOrderNFCE } from "@/components/OnlineOrderNFCE";
 import { toast } from "sonner";
+import type { OnlineOrder } from "@/lib/online-order";
 
 // Taxas fiscais padrão (percentuais)
 const TAXAS_FISCAIS = {
@@ -48,6 +50,7 @@ function PagamentoPage() {
   const { vendaId } = Route.useParams(); // vendaId é na verdade o token do pedido
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const [pixPayload, setPixPayload] = useState<string>("");
+  const [showNFCE, setShowNFCE] = useState(false);
   const pixConfig = getPixConfig();
 
   // Buscar dados do pedido online via server function (anon)
@@ -259,11 +262,34 @@ function PagamentoPage() {
           </div>
         </div>
 
+        {/* Botão para ver nota fiscal */}
+        {pedido && (
+          <Button
+            className="w-full mb-4"
+            size="lg"
+            variant="outline"
+            onClick={() => setShowNFCE(true)}
+          >
+            <FileText className="mr-2 h-4 w-4" /> Ver Nota Fiscal
+          </Button>
+        )}
+
         {/* Botão para voltar */}
         <Button className="w-full" size="lg" onClick={() => window.location.href = "/loja"}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para Loja
         </Button>
       </main>
+
+      {/* Nota Fiscal com QR Code */}
+      {showNFCE && pedido && (
+        <OnlineOrderNFCE
+          pedido={pedido as unknown as OnlineOrder}
+          onClose={() => setShowNFCE(false)}
+          onPrint={() => {
+            toast.success("Nota fiscal enviada para impressão!");
+          }}
+        />
+      )}
     </div>
   );
 }
