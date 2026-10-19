@@ -225,11 +225,23 @@ export const consultarPedidoOnline = createServerFn({ method: "GET" }).handler(
       if (queryError || !pedido) {
         throw new Error("Pedido não encontrado");
       }
-      
-      // Garante que itens seja sempre um array
+
+      // Normaliza itens: pode vir como array, string JSON, ou null/undefined
+      let normalizedItens = [];
+      if (Array.isArray(pedido.itens)) {
+        normalizedItens = pedido.itens;
+      } else if (typeof pedido.itens === 'string') {
+        try {
+          const parsed = JSON.parse(pedido.itens);
+          normalizedItens = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          normalizedItens = [];
+        }
+      }
+
       const normalizedPedido = {
         ...pedido,
-        itens: Array.isArray(pedido.itens) ? pedido.itens : [],
+        itens: normalizedItens,
       };
       
       return normalizedPedido;
@@ -242,14 +254,28 @@ export const consultarPedidoOnline = createServerFn({ method: "GET" }).handler(
     if (!data) {
       throw new Error("Pedido não encontrado");
     }
-    
+
+    // Normaliza itens: pode vir como array, string JSON, ou null/undefined
+    // A função SQL to_jsonb() converte jsonb para string JSON, então precisamos fazer parse
+    let normalizedItens = [];
+    if (Array.isArray(data.itens)) {
+      normalizedItens = data.itens;
+    } else if (typeof data.itens === 'string') {
+      try {
+        const parsed = JSON.parse(data.itens);
+        normalizedItens = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        normalizedItens = [];
+      }
+    }
+
     // Garante que itens seja sempre um array - data pode vir como objeto com chaves diferentes
     const normalizedData = {
       id: data.id || "",
       cliente: data.cliente || "",
       telefone: data.telefone || "",
       endereco: data.endereco || "",
-      itens: Array.isArray(data.itens) ? data.itens : [],
+      itens: normalizedItens,
       subtotal: Number(data.subtotal) || 0,
       desconto: Number(data.desconto) || 0,
       taxa_entrega: Number(data.taxa_entrega) || 0,
@@ -258,7 +284,7 @@ export const consultarPedidoOnline = createServerFn({ method: "GET" }).handler(
       status: data.status || "aguardando_pagamento",
       created_at: data.created_at || new Date().toISOString(),
     };
-    
+
     return normalizedData;
   }
 );

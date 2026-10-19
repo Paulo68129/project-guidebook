@@ -176,16 +176,20 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
 
                     <div className="mb-3 rounded-lg border bg-background p-2">
                       <ul className="space-y-1 text-sm">
-                        {pedido.itens.map((item, i) => (
-                          <li key={i} className="flex justify-between">
-                            <span>
-                              {item.quantidade}× {item.nome}
-                            </span>
-                            <span className="text-muted-foreground">
-                              {brl(Number(item.preco_unitario) * item.quantidade)}
-                            </span>
-                          </li>
-                        ))}
+                        {pedido.itens && pedido.itens.length > 0 ? (
+                          pedido.itens.map((item, i) => (
+                            <li key={i} className="flex justify-between">
+                              <span>
+                                {item.quantidade}× {item.nome}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {brl(Number(item.preco_unitario) * item.quantidade)}
+                              </span>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="text-muted-foreground text-xs">Nenhum item</li>
+                        )}
                       </ul>
                     </div>
 

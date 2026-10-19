@@ -58,10 +58,21 @@ function PagamentoPage() {
     queryKey: ["pedido-online", vendaId],
     queryFn: async () => {
       const data = await consultarPedidoOnline({ token: vendaId });
-      // Garante que itens seja sempre um array, mesmo se o banco retornar null/undefined
+      // Normaliza itens: pode vir como array, string JSON, ou null/undefined
+      let normalizedItens = [];
+      if (Array.isArray(data.itens)) {
+        normalizedItens = data.itens;
+      } else if (typeof data.itens === 'string') {
+        try {
+          const parsed = JSON.parse(data.itens);
+          normalizedItens = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          normalizedItens = [];
+        }
+      }
       const normalized = {
         ...data,
-        itens: Array.isArray(data.itens) ? data.itens : [],
+        itens: normalizedItens,
       } as PedidoOnline;
       return normalized;
     },
