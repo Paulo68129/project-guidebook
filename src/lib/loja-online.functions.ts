@@ -97,6 +97,16 @@ async function criarPedidoOnlineFallback(db: ReturnType<typeof createClient>, {
 
   const total = subtotal - desconto + taxaEntrega;
 
+  // Verifica se a tabela pedidos_online existe
+  const { data: tableCheck, error: tableError } = await db
+    .from("pedidos_online")
+    .select("id")
+    .limit(1);
+
+  if (tableError && (tableError.message.includes("does not exist") || tableError.code === "42P01")) {
+    throw new Error("A loja online ainda não está configurada. Execute a migração SQL no Lovable Cloud (Cloud → Database → SQL Editor) usando o arquivo supabase/migrations/0001_online_store.sql");
+  }
+
   // Insere o pedido
   const { data: pedido, error: insertError } = await db
     .from("pedidos_online")
@@ -117,6 +127,10 @@ async function criarPedidoOnlineFallback(db: ReturnType<typeof createClient>, {
     .single();
 
   if (insertError) {
+    // Se a tabela não existe, dá uma mensagem clara
+    if (insertError.message.includes("does not exist") || insertError.code === "42P01") {
+      throw new Error("A loja online ainda não está configurada. Execute a migração SQL no Lovable Cloud (Cloud → Database → SQL Editor) usando o arquivo supabase/migrations/0001_online_store.sql");
+    }
     throw new Error(insertError.message || "Erro ao criar pedido");
   }
 
@@ -158,8 +172,13 @@ export const criarPedidoOnline = createServerFn({ method: "POST" }).handler(
       _cupom: cupom || "",
     });
     
-    // Se a função não existe (schema cache), usa fallback
-    if (error && (error.message.includes("Could not find the function") || error.code === "PGRST202")) {
+    // Se a função não existe (schema cache) ou a tabela não existe, usa fallback
+    if (error && (
+      error.message.includes("Could not find the function") || 
+      error.code === "PGRST202" ||
+      error.message.includes("does not exist") ||
+      error.code === "42P01"
+    )) {
       return criarPedidoOnlineFallback(db, { token, itens, cliente, endereco, telefone, cupom });
     }
     
@@ -186,13 +205,22 @@ export const consultarPedidoOnline = createServerFn({ method: "GET" }).handler(
       _token: token,
     });
     
-    // Se a função não existe (schema cache), usa query direta
-    if (error && (error.message.includes("Could not find the function") || error.code === "PGRST202")) {
+    // Se a função não existe (schema cache) ou a tabela não existe, usa query direta
+    if (error && (
+      error.message.includes("Could not find the function") || 
+      error.code === "PGRST202" ||
+      error.message.includes("does not exist") ||
+      error.code === "42P01"
+    )) {
       const { data: pedido, error: queryError } = await db
         .from("pedidos_online")
         .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, cupom, status, created_at")
         .eq("token", token)
         .single();
+      
+      if (queryError && (queryError.message.includes("does not exist") || queryError.code === "42P01")) {
+        throw new Error("A loja online ainda não está configurada. Execute a migração SQL no Lovable Cloud.");
+      }
       
       if (queryError || !pedido) {
         throw new Error("Pedido não encontrado");
