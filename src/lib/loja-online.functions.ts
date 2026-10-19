@@ -42,8 +42,8 @@ export const criarPedidoOnline = createServerFn({ method: "POST" }).handler(
     const { data, error } = await db.rpc("criar_pedido_online", {
       _token: token,
       _cliente: cliente,
-      _endereco: endereco,
       _telefone: telefone,
+      _endereco: endereco,
       _itens: itens,
       _cupom: cupom || "",
     });
