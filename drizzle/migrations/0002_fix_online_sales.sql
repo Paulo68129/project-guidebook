@@ -1,86 +1,221 @@
--- Migration: Corrige funções do banco de dados para permitir compras online sem autenticação
--- Executar no Supabase Dashboard > SQL Editor
+-- Migration completa: Cria tudo necessário para a loja online funcionar
+-- Executar no Supabase Dashboard > SQL Editor > Run
+-- Este script é autocontido e cria tabela, funções e permissões do zero
 
--- 1. Garante que registrar_venda funcione com service_role (bypass de is_staff)
--- A função já é SECURITY DEFINER, mas verifica is_staff(auth.uid()).
--- Como auth.uid() retorna NULL sem autenticação, is_staff(NULL) = false.
--- Solução: criar uma versão que não exige staff para o fluxo online.
+-- ============================================
+-- 1. Tabela de pedidos online
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.pedidos_online (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  token uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+  cliente text NOT NULL,
+  telefone text NOT NULL,
+  endereco text NOT NULL,
+  itens jsonb NOT NULL,
+  subtotal numeric NOT NULL,
+  desconto numeric NOT NULL DEFAULT 0,
+  taxa_entrega numeric NOT NULL DEFAULT 0,
+  total numeric NOT NULL,
+  cupom text,
+  status text NOT NULL DEFAULT 'aguardando_pagamento',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 
--- 2. Garante que criar_pedido_online e consultar_pedido_online existem e têm permissão anon
--- Estas funções já foram criadas na migration 0001_customer_delivery_catalog,
--- mas garantimos aqui que os grants estão corretos.
+ALTER TABLE public.pedidos_online ENABLE ROW LEVEL SECURITY;
 
--- Re-grant execute para anon nas funções online
-GRANT EXECUTE ON FUNCTION public.criar_pedido_online(uuid,text,text,text,jsonb,text) TO anon;
-GRANT EXECUTE ON FUNCTION public.consultar_pedido_online(uuid) TO anon;
-GRANT EXECUTE ON FUNCTION public.catalogo_online() TO anon;
+-- Permissões da tabela
+GRANT SELECT ON public.pedidos_online TO authenticated;
+GRANT ALL ON public.pedidos_online TO service_role;
 
--- 3. Garante que produtos ativos são visíveis publicamente
--- A política já existe, mas garantimos o grant de colunas
+-- Política: staff pode consultar pedidos online
+DROP POLICY IF EXISTS "staff consulta pedidos online" ON public.pedidos_online;
+CREATE POLICY "staff consulta pedidos online" ON public.pedidos_online
+  FOR SELECT TO authenticated USING (public.is_staff(auth.uid()));
+
+-- ============================================
+-- 2. Coluna foto_url em produtos (se não existir)
+-- ============================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='produtos' AND column_name='foto_url'
+  ) THEN
+    ALTER TABLE public.produtos ADD COLUMN foto_url text;
+  END IF;
+END $$;
+
+-- ============================================
+-- 3. Coluna imagem_path em produtos (se não existir)
+-- ============================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='produtos' AND column_name='imagem_path'
+  ) THEN
+    ALTER TABLE public.produtos ADD COLUMN imagem_path text;
+  END IF;
+END $$;
+
+-- ============================================
+-- 4. Políticas e grants para catálogo público
+-- ============================================
+DROP POLICY IF EXISTS "catalogo produtos ativos" ON public.produtos;
+CREATE POLICY "catalogo produtos ativos" ON public.produtos
+  FOR SELECT TO anon USING (ativo);
+
 GRANT SELECT (id,nome,categoria,descricao,preco,ativo,imagem_path,foto_url) ON public.produtos TO anon;
 
--- 4. Garante que cupons ativos são consultáveis por anon (para validação na loja online)
-CREATE POLICY IF NOT EXISTS "anon ve cupons ativos" ON public.cupons FOR SELECT TO anon USING (ativo);
-GRANT SELECT (id,codigo,percentual,ativo) ON public.cupons TO anon;
+-- Storage bucket para fotos
+DROP POLICY IF EXISTS "fotos leitura catalogo" ON storage.objects;
+CREATE POLICY "fotos leitura catalogo" ON storage.objects
+  FOR SELECT TO anon, authenticated USING (bucket_id = 'produtos');
 
--- 5. Garante que loja_config é visível por anon (para taxa de entrega e horário)
-CREATE POLICY IF NOT EXISTS "anon ve loja config" ON public.loja_config FOR SELECT TO anon USING (true);
+-- ============================================
+-- 5. Função catálogo online (produtos + config)
+-- ============================================
+CREATE OR REPLACE FUNCTION public.catalogo_online()
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT jsonb_build_object(
+    'produtos', coalesce(
+      (SELECT jsonb_agg(
+        jsonb_build_object('id',id,'nome',nome,'categoria',categoria,'descricao',descricao,'preco',preco,'imagem_path',imagem_path,'foto_url',foto_url)
+        ORDER BY categoria,nome
+      ) FROM produtos WHERE ativo), '[]'::jsonb
+    ),
+    'taxa_entrega', coalesce((SELECT taxa_entrega FROM loja_config WHERE id=1), 0),
+    'abre', (SELECT abre FROM loja_config WHERE id=1),
+    'fecha', (SELECT fecha FROM loja_config WHERE id=1),
+    'aberta_manual', (SELECT aberta_manual FROM loja_config WHERE id=1)
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.catalogo_online() TO anon, authenticated;
+
+-- ============================================
+-- 6. Função criar pedido online (sem autenticação)
+-- ============================================
+CREATE OR REPLACE FUNCTION public.criar_pedido_online(
+  _token uuid,
+  _cliente text,
+  _telefone text,
+  _endereco text,
+  _itens jsonb,
+  _cupom text DEFAULT ''
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $func$
+DECLARE
+  p record;
+  e jsonb;
+  snap jsonb := '[]';
+  sub numeric := 0;
+  pct numeric := 0;
+  fee numeric;
+  disc numeric;
+  result jsonb;
+BEGIN
+  -- Evita duplicação com o mesmo token
+  PERFORM pg_advisory_xact_lock(hashtext(_token::text));
+  SELECT to_jsonb(o) - 'token' INTO result FROM pedidos_online o WHERE token = _token;
+  IF result IS NOT NULL THEN
+    RETURN result;
+  END IF;
+
+  -- Validação dos dados do cliente
+  IF length(trim(_cliente)) < 2 OR length(_cliente) > 120 THEN
+    RAISE EXCEPTION 'Nome do cliente inválido';
+  END IF;
+  IF length(trim(_telefone)) < 8 OR length(_telefone) > 30 THEN
+    RAISE EXCEPTION 'Telefone inválido';
+  END IF;
+  IF length(trim(_endereco)) < 8 OR length(_endereco) > 500 THEN
+    RAISE EXCEPTION 'Endereço inválido';
+  END IF;
+
+  -- Validação do carrinho
+  IF jsonb_typeof(_itens) != 'array' OR jsonb_array_length(_itens) < 1 OR jsonb_array_length(_itens) > 50 THEN
+    RAISE EXCEPTION 'Carrinho inválido';
+  END IF;
+
+  -- Valida cada item e calcula subtotal
+  FOR e IN SELECT * FROM jsonb_array_elements(_itens) LOOP
+    IF (e->>'quantidade')::int NOT BETWEEN 1 AND 99 THEN
+      RAISE EXCEPTION 'Quantidade inválida';
+    END IF;
+    SELECT * INTO p FROM produtos WHERE id = (e->>'produto_id')::uuid AND ativo;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Produto indisponível';
+    END IF;
+    sub := sub + p.preco * (e->>'quantidade')::int;
+    snap := snap || jsonb_build_array(
+      jsonb_build_object(
+        'nome', p.nome,
+        'produto_id', p.id,
+        'quantidade', (e->>'quantidade')::int,
+        'preco_unitario', p.preco
+      )
+    );
+  END LOOP;
+
+  -- Valida cupom (se informado)
+  IF trim(_cupom) <> '' THEN
+    SELECT percentual INTO pct FROM cupons
+    WHERE upper(codigo) = upper(trim(_cupom)) AND ativo;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Cupom inválido';
+    END IF;
+  END IF;
+
+  -- Busca taxa de entrega
+  SELECT taxa_entrega INTO fee FROM loja_config WHERE id = 1;
+
+  -- Calcula desconto e total
+  disc := round(sub * pct / 100, 2);
+
+  -- Insere o pedido
+  INSERT INTO pedidos_online (
+    token, cliente, telefone, endereco, itens,
+    subtotal, desconto, taxa_entrega, total, cupom
+  ) VALUES (
+    _token, trim(_cliente), trim(_telefone), trim(_endereco), snap,
+    sub, disc, coalesce(fee, 0), sub - disc + coalesce(fee, 0),
+    nullif(trim(_cupom), '')
+  ) RETURNING to_jsonb(pedidos_online) - 'token' INTO result;
+
+  RETURN result;
+END
+$func$;
+
+GRANT EXECUTE ON FUNCTION public.criar_pedido_online(uuid, text, text, text, jsonb, text) TO anon, authenticated;
+
+-- ============================================
+-- 7. Função consultar pedido online (sem autenticação)
+-- ============================================
+CREATE OR REPLACE FUNCTION public.consultar_pedido_online(_token uuid)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT to_jsonb(o) - 'token' FROM pedidos_online o WHERE token = _token;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.consultar_pedido_online(uuid) TO anon, authenticated;
+
+-- ============================================
+-- 8. Grants para cupons e loja_config
+-- ============================================
+DROP POLICY IF EXISTS "anon ve cupons ativos" ON public.cupons;
+CREATE POLICY "anon ve cupons ativos" ON public.cupons
+  FOR SELECT TO anon USING (ativo);
+
+GRANT SELECT (id, codigo, percentual, ativo) ON public.cupons TO anon;
+
+DROP POLICY IF EXISTS "anon ve loja config" ON public.loja_config;
+CREATE POLICY "anon ve loja config" ON public.loja_config
+  FOR SELECT TO anon USING (true);
+
 GRANT SELECT ON public.loja_config TO anon;
 
--- 6. Cria função para registrar venda via service role sem verificar staff
--- Esta função é usada pelo backend (server functions) com service_role key
-CREATE OR REPLACE FUNCTION public.registrar_venda_online(
-  _itens jsonb, _tipo text DEFAULT 'delivery', _cliente text DEFAULT NULL,
-  _telefone text DEFAULT NULL, _endereco text DEFAULT NULL, _cupom text DEFAULT NULL
-) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-declare
-  v_id uuid; it jsonb; p record; r record; v_sub numeric := 0; v_custo numeric := 0; v_custo_item numeric;
-  v_desc numeric := 0; v_taxa numeric := 0; v_pct numeric; v_status text;
-begin
-  -- NÃO verifica is_staff - permite vendas anônimas via service role
-  if jsonb_array_length(_itens) = 0 then raise exception 'Carrinho vazio'; end if;
-  
-  for it in select * from jsonb_array_elements(_itens) loop
-    select * into p from produtos where id = (it->>'produto_id')::uuid and ativo;
-    if not found then raise exception 'Produto indisponível'; end if;
-  end loop;
-  
-  v_status := case when _tipo='delivery' then 'novo' else 'concluido' end;
-  insert into vendas(tipo,status,cliente,telefone,endereco)
-    values(_tipo,v_status,_cliente,_telefone,_endereco) returning id into v_id;
-    
-  for it in select * from jsonb_array_elements(_itens) loop
-    select * into p from produtos where id=(it->>'produto_id')::uuid;
-    select coalesce(sum(rc.quantidade*i.custo_unitario),0) into v_custo_item
-      from receitas rc join ingredientes i on i.id=rc.ingrediente_id where rc.produto_id=p.id;
-    insert into venda_itens(venda_id,produto_id,nome,quantidade,preco_unitario,custo_unitario)
-      values(v_id,p.id,p.nome,(it->>'quantidade')::int,p.preco,v_custo_item);
-    v_sub := v_sub + p.preco*(it->>'quantidade')::int;
-    v_custo := v_custo + v_custo_item*(it->>'quantidade')::int;
-    update ingredientes i set quantidade = i.quantidade - rc.quantidade*(it->>'quantidade')::numeric
-      from receitas rc where rc.produto_id=p.id and rc.ingrediente_id=i.id;
-  end loop;
-  
-  if _cupom is not null and _cupom <> '' then
-    select percentual into v_pct from cupons where upper(codigo)=upper(_cupom) and ativo;
-    if not found then raise exception 'Cupom inválido'; end if;
-    v_desc := round(v_sub*v_pct/100,2);
-  end if;
-  
-  if _tipo='delivery' then select taxa_entrega into v_taxa from loja_config where id=1; end if;
-  
-  update vendas set subtotal=v_sub, desconto=v_desc, cupom=nullif(_cupom,''),
-    taxa_entrega=coalesce(v_taxa,0), total=v_sub-v_desc+coalesce(v_taxa,0),
-    custo=v_custo, lucro=v_sub-v_desc-v_custo where id=v_id;
-    
-  return v_id;
-end $$;
-
--- Grant para service_role usar esta função
-GRANT EXECUTE ON FUNCTION public.registrar_venda_online(jsonb,text,text,text,text,text) TO service_role;
-
--- 7. Garante que vendas e venda_itens são consultáveis por service_role
--- (já devem ter grant, mas garantimos)
+-- ============================================
+-- 9. Grants para service_role
+-- ============================================
 GRANT ALL ON public.vendas TO service_role;
 GRANT ALL ON public.venda_itens TO service_role;
 GRANT ALL ON public.ingredientes TO service_role;
