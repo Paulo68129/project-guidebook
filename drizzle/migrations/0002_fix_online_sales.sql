@@ -1,6 +1,10 @@
--- Migration completa: Cria tudo necessário para a loja online funcionar
--- Executar no Supabase Dashboard > SQL Editor > Run
--- Este script é autocontido e cria tabela, funções e permissões do zero
+-- ============================================
+-- MIGRAÇÃO COMPLETA: Loja Online + Delivery
+-- ============================================
+-- Executar no Lovable Cloud: Cloud → Database → SQL Editor → Run
+-- Cria tabela, funções SQL, políticas RLS e grants para a loja online funcionar
+-- sem autenticação (anon) e integrada com o painel de delivery.
+-- ============================================
 
 -- ============================================
 -- 1. Tabela de pedidos online
@@ -18,83 +22,92 @@ CREATE TABLE IF NOT EXISTS public.pedidos_online (
   total numeric NOT NULL,
   cupom text,
   status text NOT NULL DEFAULT 'aguardando_pagamento',
+  motoboy_id uuid,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE public.pedidos_online ENABLE ROW LEVEL SECURITY;
 
--- Permissões da tabela
+-- Grants da tabela
 GRANT SELECT ON public.pedidos_online TO authenticated;
+GRANT INSERT ON public.pedidos_online TO anon;
+GRANT UPDATE ON public.pedidos_online TO authenticated;
 GRANT ALL ON public.pedidos_online TO service_role;
 
--- Política: staff pode consultar pedidos online
+-- Políticas RLS: clientes anônimos
+DROP POLICY IF EXISTS "anon insere pedidos online" ON public.pedidos_online;
+CREATE POLICY "anon insere pedidos online" ON public.pedidos_online
+  FOR INSERT TO anon WITH CHECK (true);
+
+DROP POLICY IF EXISTS "anon consulta pedido por token" ON public.pedidos_online;
+CREATE POLICY "anon consulta pedido por token" ON public.pedidos_online
+  FOR SELECT TO anon USING (true);
+
+-- Políticas RLS: staff autenticado
 DROP POLICY IF EXISTS "staff consulta pedidos online" ON public.pedidos_online;
 CREATE POLICY "staff consulta pedidos online" ON public.pedidos_online
   FOR SELECT TO authenticated USING (public.is_staff(auth.uid()));
 
--- ============================================
--- 2. Coluna foto_url em produtos (se não existir)
--- ============================================
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='produtos' AND column_name='foto_url'
-  ) THEN
-    ALTER TABLE public.produtos ADD COLUMN foto_url text;
-  END IF;
-END $$;
+DROP POLICY IF EXISTS "staff atualiza pedidos online" ON public.pedidos_online;
+CREATE POLICY "staff atualiza pedidos online" ON public.pedidos_online
+  FOR UPDATE TO authenticated USING (public.is_staff(auth.uid()));
 
 -- ============================================
--- 3. Coluna imagem_path em produtos (se não existir)
+-- 2. Colunas em produtos (se não existirem)
 -- ============================================
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='produtos' AND column_name='imagem_path'
-  ) THEN
-    ALTER TABLE public.produtos ADD COLUMN imagem_path text;
-  END IF;
-END $$;
+ALTER TABLE public.produtos ADD COLUMN IF NOT EXISTS foto_url text;
+ALTER TABLE public.produtos ADD COLUMN IF NOT EXISTS imagem_path text;
 
 -- ============================================
--- 4. Políticas e grants para catálogo público
+-- 3. Políticas e grants para catálogo público
 -- ============================================
 DROP POLICY IF EXISTS "catalogo produtos ativos" ON public.produtos;
 CREATE POLICY "catalogo produtos ativos" ON public.produtos
   FOR SELECT TO anon USING (ativo);
 
-GRANT SELECT (id,nome,categoria,descricao,preco,ativo,imagem_path,foto_url) ON public.produtos TO anon;
+GRANT SELECT (id, nome, categoria, descricao, preco, ativo, imagem_path, foto_url) ON public.produtos TO anon;
 
--- Storage bucket para fotos
+-- Storage bucket para fotos dos produtos
 DROP POLICY IF EXISTS "fotos leitura catalogo" ON storage.objects;
 CREATE POLICY "fotos leitura catalogo" ON storage.objects
   FOR SELECT TO anon, authenticated USING (bucket_id = 'produtos');
 
 -- ============================================
--- 5. Função catálogo online (produtos + config)
+-- 4. Função catálogo online (produtos + config)
 -- ============================================
 CREATE OR REPLACE FUNCTION public.catalogo_online()
-RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
   SELECT jsonb_build_object(
     'produtos', coalesce(
       (SELECT jsonb_agg(
-        jsonb_build_object('id',id,'nome',nome,'categoria',categoria,'descricao',descricao,'preco',preco,'imagem_path',imagem_path,'foto_url',foto_url)
-        ORDER BY categoria,nome
+        jsonb_build_object(
+          'id', id,
+          'nome', nome,
+          'categoria', categoria,
+          'descricao', descricao,
+          'preco', preco,
+          'imagem_path', imagem_path,
+          'foto_url', foto_url
+        )
+        ORDER BY categoria, nome
       ) FROM produtos WHERE ativo), '[]'::jsonb
     ),
-    'taxa_entrega', coalesce((SELECT taxa_entrega FROM loja_config WHERE id=1), 0),
-    'abre', (SELECT abre FROM loja_config WHERE id=1),
-    'fecha', (SELECT fecha FROM loja_config WHERE id=1),
-    'aberta_manual', (SELECT aberta_manual FROM loja_config WHERE id=1)
+    'taxa_entrega', coalesce((SELECT taxa_entrega FROM loja_config WHERE id = 1), 0),
+    'abre', (SELECT abre FROM loja_config WHERE id = 1),
+    'fecha', (SELECT fecha FROM loja_config WHERE id = 1),
+    'aberta_manual', (SELECT aberta_manual FROM loja_config WHERE id = 1)
   );
 $$;
 
 GRANT EXECUTE ON FUNCTION public.catalogo_online() TO anon, authenticated;
 
 -- ============================================
--- 6. Função criar pedido online (sem autenticação)
+-- 5. Função criar pedido online (sem autenticação)
 -- ============================================
 CREATE OR REPLACE FUNCTION public.criar_pedido_online(
   _token uuid,
@@ -103,7 +116,11 @@ CREATE OR REPLACE FUNCTION public.criar_pedido_online(
   _endereco text,
   _itens jsonb,
   _cupom text DEFAULT ''
-) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $func$
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $func$
 DECLARE
   p record;
   e jsonb;
@@ -116,7 +133,8 @@ DECLARE
 BEGIN
   -- Evita duplicação com o mesmo token
   PERFORM pg_advisory_xact_lock(hashtext(_token::text));
-  SELECT to_jsonb(o) - 'token' INTO result FROM pedidos_online o WHERE token = _token;
+  SELECT to_jsonb(o) - 'token' INTO result
+  FROM pedidos_online o WHERE token = _token;
   IF result IS NOT NULL THEN
     RETURN result;
   END IF;
@@ -133,7 +151,9 @@ BEGIN
   END IF;
 
   -- Validação do carrinho
-  IF jsonb_typeof(_itens) != 'array' OR jsonb_array_length(_itens) < 1 OR jsonb_array_length(_itens) > 50 THEN
+  IF jsonb_typeof(_itens) != 'array'
+     OR jsonb_array_length(_itens) < 1
+     OR jsonb_array_length(_itens) > 50 THEN
     RAISE EXCEPTION 'Carrinho inválido';
   END IF;
 
@@ -142,7 +162,8 @@ BEGIN
     IF (e->>'quantidade')::int NOT BETWEEN 1 AND 99 THEN
       RAISE EXCEPTION 'Quantidade inválida';
     END IF;
-    SELECT * INTO p FROM produtos WHERE id = (e->>'produto_id')::uuid AND ativo;
+    SELECT * INTO p FROM produtos
+    WHERE id = (e->>'produto_id')::uuid AND ativo;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'Produto indisponível';
     END IF;
@@ -186,20 +207,27 @@ BEGIN
 END
 $func$;
 
-GRANT EXECUTE ON FUNCTION public.criar_pedido_online(uuid, text, text, text, jsonb, text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.criar_pedido_online(uuid, text, text, text, jsonb, text)
+  TO anon, authenticated;
 
 -- ============================================
--- 7. Função consultar pedido online (sem autenticação)
+-- 6. Função consultar pedido online (sem autenticação)
 -- ============================================
 CREATE OR REPLACE FUNCTION public.consultar_pedido_online(_token uuid)
-RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT to_jsonb(o) - 'token' FROM pedidos_online o WHERE token = _token;
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT to_jsonb(o) - 'token'
+  FROM pedidos_online o WHERE token = _token;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.consultar_pedido_online(uuid) TO anon, authenticated;
 
 -- ============================================
--- 8. Grants para cupons e loja_config
+-- 7. Grants para cupons e loja_config
 -- ============================================
 DROP POLICY IF EXISTS "anon ve cupons ativos" ON public.cupons;
 CREATE POLICY "anon ve cupons ativos" ON public.cupons
@@ -214,7 +242,7 @@ CREATE POLICY "anon ve loja config" ON public.loja_config
 GRANT SELECT ON public.loja_config TO anon;
 
 -- ============================================
--- 9. Grants para service_role
+-- 8. Grants para service_role
 -- ============================================
 GRANT ALL ON public.vendas TO service_role;
 GRANT ALL ON public.venda_itens TO service_role;
@@ -223,3 +251,8 @@ GRANT ALL ON public.produtos TO service_role;
 GRANT ALL ON public.receitas TO service_role;
 GRANT ALL ON public.cupons TO service_role;
 GRANT ALL ON public.loja_config TO service_role;
+
+-- ============================================
+-- 9. Reload schema cache do PostgREST
+-- ============================================
+NOTIFY pgrst, 'reload schema';
