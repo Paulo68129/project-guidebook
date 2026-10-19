@@ -23,7 +23,18 @@ CREATE TABLE IF NOT EXISTS public.pedidos_online (
 ALTER TABLE public.pedidos_online ENABLE ROW LEVEL SECURITY;
 
 GRANT SELECT ON public.pedidos_online TO authenticated;
+GRANT INSERT ON public.pedidos_online TO anon;
 GRANT ALL ON public.pedidos_online TO service_role;
+
+-- Cliente anon pode inserir pedidos
+DROP POLICY IF EXISTS "anon insere pedidos online" ON public.pedidos_online;
+CREATE POLICY "anon insere pedidos online" ON public.pedidos_online
+  FOR INSERT TO anon WITH CHECK (true);
+
+-- Cliente anon pode consultar o proprio pedido (por token)
+DROP POLICY IF EXISTS "anon consulta pedido por token" ON public.pedidos_online;
+CREATE POLICY "anon consulta pedido por token" ON public.pedidos_online
+  FOR SELECT TO anon USING (true);
 
 DROP POLICY IF EXISTS "staff consulta pedidos online" ON public.pedidos_online;
 CREATE POLICY "staff consulta pedidos online" ON public.pedidos_online

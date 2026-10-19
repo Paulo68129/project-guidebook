@@ -175,14 +175,31 @@ export const criarPedidoOnline = createServerFn({ method: "POST" }).handler(
 /**
  * Consulta um pedido online pelo token.
  * Permite acesso sem autenticação (anon).
+ * Se a função SQL não estiver disponível, usa query direta.
  */
 export const consultarPedidoOnline = createServerFn({ method: "GET" }).handler(
   async ({ token }: { token: string }) => {
     const db = createServerSupabaseClient();
     
+    // Tenta usar a função SQL primeiro
     const { data, error } = await db.rpc("consultar_pedido_online", {
       _token: token,
     });
+    
+    // Se a função não existe (schema cache), usa query direta
+    if (error && (error.message.includes("Could not find the function") || error.code === "PGRST202")) {
+      const { data: pedido, error: queryError } = await db
+        .from("pedidos_online")
+        .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, cupom, status, created_at")
+        .eq("token", token)
+        .single();
+      
+      if (queryError || !pedido) {
+        throw new Error("Pedido não encontrado");
+      }
+      
+      return pedido;
+    }
     
     if (error) {
       throw new Error("Pedido não encontrado");
