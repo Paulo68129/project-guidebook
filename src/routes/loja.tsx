@@ -1,11 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Minus, Plus, Trash2, ShoppingCart, Store, Image, Clock3 } from "lucide-react";
+import { Minus, Plus, Trash2, ShoppingCart, Store, Clock3, PackageSearch } from "lucide-react";
 import { brl, configQ, produtosQ } from "@/lib/data";
 import { lojaAberta } from "@/components/Clock";
-import { criarPedidoOnline } from "@/lib/loja-online.functions";
+import { countActive, MyOrdersBanner, MyOrdersSheet, useTrackedOrders } from "@/components/MyOrders";
+import { rememberOrder } from "@/hooks/useMyOrders";
+import { enviarPedidoOnline } from "@/lib/online-order-api";
+import { errorMessage } from "@/lib/online-order";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -39,11 +42,14 @@ export const Route = createFileRoute("/loja")({
 function LojaOnline() {
   const { data: produtos, isLoading } = useQuery(produtosQ);
   const { data: config } = useQuery(configQ);
-  const qc = useQueryClient();
+  const navigate = useNavigate();
   const [cart, setCart] = useState<Record<string, number>>({});
   const [cliente, setCliente] = useState({ nome: "", telefone: "", endereco: "" });
   const [busy, setBusy] = useState(false);
   const [showCart, setShowCart] = useState(false);
+  const [showOrders, setShowOrders] = useState(false);
+  const meusPedidos = useTrackedOrders();
+  const pedidosAtivos = countActive(meusPedidos);
 
   const ativos = produtos?.filter((p) => p.ativo) ?? [];
   const cats = [...new Set(ativos.map((p) => p.categoria))];
@@ -82,27 +88,21 @@ function LojaOnline() {
     setBusy(true);
 
     try {
-      const telefone = cliente.telefone.trim();
-      const resultado = await criarPedidoOnline({
+      const { token } = await enviarPedidoOnline({
         itens: linhas.map((l) => ({ produto_id: l.p.id, quantidade: l.q })),
-        cliente: cliente.nome.trim(),
-        endereco: cliente.endereco.trim(),
-        telefone: telefone,
+        cliente: cliente.nome,
+        endereco: cliente.endereco,
+        telefone: cliente.telefone,
       });
 
-      toast.success("Pedido realizado com sucesso! 🎉");
+      rememberOrder(token);
+      toast.success("Pedido enviado! Pague com PIX para liberarmos o preparo.");
       setCart({});
       setCliente({ nome: "", telefone: "", endereco: "" });
       setShowCart(false);
-      qc.invalidateQueries({ queryKey: ["ingredientes"] });
-
-      // Redirecionar para a página de pagamento com o token
-      if (resultado && resultado.token) {
-        window.location.href = `/pagamento/${resultado.token}`;
-      }
+      await navigate({ to: "/pagamento/$vendaId", params: { vendaId: token } });
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Erro ao registrar pedido";
-      toast.error(message);
+      toast.error(errorMessage(e, "Não foi possível enviar o pedido. Tente novamente."));
     } finally {
       setBusy(false);
     }
@@ -128,22 +128,44 @@ function LojaOnline() {
             <span className="grid h-9 w-9 place-items-center rounded-full bg-ember-gradient text-primary-foreground">🍕</span>
             PizzaStockAI
           </div>
-          <button
-            onClick={() => setShowCart(!showCart)}
-            className="relative flex items-center gap-2 rounded-lg border bg-card px-4 py-2 text-sm hover:border-primary"
-          >
-            <ShoppingCart className="h-5 w-5" />
-            {totalItens > 0 && (
-              <span className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                {totalItens}
-              </span>
-            )}
-            Carrinho
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowOrders(true)}
+              className="relative flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm hover:border-primary sm:px-4"
+            >
+              <PackageSearch className="h-5 w-5" aria-hidden="true" />
+              {pedidosAtivos > 0 && (
+                <span className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-success text-xs font-bold text-background">
+                  {pedidosAtivos}
+                  <span className="sr-only"> pedidos em andamento</span>
+                </span>
+              )}
+              <span className="hidden sm:inline">Meus pedidos</span>
+              <span className="sr-only sm:hidden">Meus pedidos</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCart(!showCart)}
+              className="relative flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm hover:border-primary sm:px-4"
+            >
+              <ShoppingCart className="h-5 w-5" aria-hidden="true" />
+              {totalItens > 0 && (
+                <span className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                  {totalItens}
+                </span>
+              )}
+              Carrinho
+            </button>
+          </div>
         </div>
       </header>
 
+      <MyOrdersSheet orders={meusPedidos} open={showOrders} onOpenChange={setShowOrders} />
+
       <main className="mx-auto max-w-6xl px-6 py-8">
+        <MyOrdersBanner orders={meusPedidos} onOpenAll={() => setShowOrders(true)} />
+
         {/* Hero */}
         <div className="mb-10 text-center">
           <h1 className="font-display text-4xl font-bold md:text-5xl">
@@ -313,13 +335,17 @@ function LojaOnline() {
                   </div>
 
                   <Button
+                    type="button"
                     className="mt-4 w-full"
                     size="lg"
                     disabled={busy}
                     onClick={finalizar}
                   >
-                    {busy ? "Enviando pedido..." : "Finalizar Pedido"}
+                    {busy ? "Enviando pedido..." : "Finalizar pedido e pagar com PIX"}
                   </Button>
+                  <p className="mt-2 text-center text-xs text-muted-foreground">
+                    Você acompanha o pedido em tempo real depois de finalizar.
+                  </p>
                 </>
               )}
             </div>

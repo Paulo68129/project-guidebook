@@ -1,175 +1,189 @@
-import { useState, useEffect, useCallback } from "react";
-import { Copy, Check, Clock, QrCode } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Check, Clock, Copy, LoaderCircle, QrCode, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { brl } from "@/lib/data";
+import { cn } from "@/lib/utils";
+
+const DURATION_MS = 5 * 60 * 1000;
 
 interface PixPaymentModalProps {
   pixPayload: string;
-  qrCodeUrl: string;
+  qrCodeUrl: string | null;
+  qrLoading?: boolean;
   valor: number;
   beneficiario?: string;
   onExpire?: () => void;
 }
 
-function brl(n: number) {
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(textArea);
+    return ok;
+  }
 }
 
 export function PixPaymentModal({
   pixPayload,
   qrCodeUrl,
+  qrLoading = false,
   valor,
   beneficiario = "PizzaStockAI",
   onExpire,
 }: PixPaymentModalProps) {
   const [copied, setCopied] = useState(false);
-  const [seconds, setSeconds] = useState(5 * 60); // 5 minutos em segundos
   const [showPayload, setShowPayload] = useState(false);
+  const [expiresAt, setExpiresAt] = useState(() => Date.now() + DURATION_MS);
+  const [now, setNow] = useState(() => Date.now());
 
-  // Timer regressivo
   useEffect(() => {
-    if (seconds <= 0) {
-      onExpire?.();
-      return;
-    }
-    const timer = setInterval(() => {
-      setSeconds((s) => {
-        if (s <= 1) {
-          clearInterval(timer);
-          onExpire?.();
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [seconds, onExpire]);
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  // Copiar código PIX
+  const remaining = Math.max(0, Math.ceil((expiresAt - now) / 1000));
+  const expired = remaining === 0;
+
+  useEffect(() => {
+    if (expired) onExpire?.();
+  }, [expired, onExpire]);
+
   const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(pixPayload);
+    if (await copyText(pixPayload)) {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    } catch {
-      // Fallback para navegadores sem clipboard API
-      const textArea = document.createElement("textarea");
-      textArea.value = pixPayload;
-      textArea.style.position = "fixed";
-      textArea.style.left = "-9999px";
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      window.setTimeout(() => setCopied(false), 2500);
     }
   }, [pixPayload]);
 
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  const timeStr = `${minutes}:${secs.toString().padStart(2, "0")}`;
+  function renew() {
+    const t = Date.now();
+    setExpiresAt(t + DURATION_MS);
+    setNow(t);
+  }
 
-  // Cor do timer muda conforme o tempo restante
-  const timerColor = seconds > 180 ? "text-green-600" : seconds > 60 ? "text-yellow-600" : "text-red-600";
-  const timerBg = seconds > 180 ? "bg-green-50 border-green-200" : seconds > 60 ? "bg-yellow-50 border-yellow-200" : "bg-red-50 border-red-200";
+  const minutes = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const timerTone = remaining > 180 ? "text-success" : remaining > 60 ? "text-warning" : "text-destructive";
+  const timerBox =
+    remaining > 180
+      ? "border-success/30 bg-success/10"
+      : remaining > 60
+        ? "border-warning/30 bg-warning/10"
+        : "border-destructive/30 bg-destructive/10";
 
   return (
-    <div className="space-y-4">
-      {/* QR Code */}
-      {qrCodeUrl && (
-        <div className="flex justify-center">
-          <div className="rounded-xl border-2 border-gray-200 p-4 bg-white shadow-sm">
-            <img src={qrCodeUrl} alt="QR Code PIX" className="w-56 h-56" />
-          </div>
-        </div>
-      )}
-
-      {/* Valor */}
-      <div className="text-center">
-        <p className="text-sm text-gray-500">Valor a pagar</p>
-        <p className="text-3xl font-bold text-gray-900">{brl(valor)}</p>
-      </div>
-
-      {/* Beneficiário */}
-      <div className="text-center text-sm text-gray-600">
-        Beneficiário: <span className="font-semibold text-gray-900">{beneficiario}</span>
-      </div>
-
-      {/* Timer regressivo */}
-      <div className={`rounded-xl border ${timerBg} p-4 text-center transition-colors`}>
-        <div className="flex items-center justify-center gap-2">
-          <Clock className={`h-5 w-5 ${timerColor}`} />
-          <span className={`text-2xl font-mono font-bold ${timerColor}`}>{timeStr}</span>
-        </div>
-        <p className={`text-xs mt-1 ${timerColor}`}>
-          {seconds > 0 ? "Escaneie o QR Code ou copie o código abaixo" : "Tempo de pagamento expirado"}
-        </p>
-      </div>
-
-      {/* Botão Copia e Cola */}
-      <div className="space-y-2">
-        <Button
-          onClick={handleCopy}
-          disabled={seconds <= 0}
-          className={`w-full text-base font-semibold transition-all ${
-            copied
-              ? "bg-green-600 hover:bg-green-700 text-white"
-              : "bg-green-600 hover:bg-green-700 text-white"
-          }`}
-          size="lg"
-        >
-          {copied ? (
-            <>
-              <Check className="mr-2 h-5 w-5" />
-              Código Copiado!
-            </>
+    <div className="space-y-5">
+      <div className="relative mx-auto w-fit">
+        <div className="rounded-2xl bg-white p-3 shadow-lg">
+          {qrCodeUrl ? (
+            <img
+              src={qrCodeUrl}
+              alt={`QR Code PIX no valor de ${brl(valor)}`}
+              width={224}
+              height={224}
+              className={cn("h-56 w-56 transition", expired && "opacity-15 blur-[2px]")}
+            />
           ) : (
-            <>
-              <Copy className="mr-2 h-5 w-5" />
-              Copiar código PIX
-            </>
+            <div className="grid h-56 w-56 place-items-center p-4 text-center text-sm text-neutral-600">
+              {qrLoading ? (
+                <LoaderCircle className="h-8 w-8 animate-spin text-neutral-500" aria-label="Gerando QR Code" />
+              ) : (
+                "Não foi possível desenhar o QR Code. Use o código copia e cola abaixo."
+              )}
+            </div>
           )}
-        </Button>
-
-        {/* Toggle para mostrar/ocultar o BR Code */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowPayload(!showPayload)}
-          className="w-full text-xs"
-        >
-          <QrCode className="mr-2 h-3 w-3" />
-          {showPayload ? "Ocultar" : "Mostrar"} código PIX completo
-        </Button>
-
-        {showPayload && (
-          <div className="rounded-lg border bg-gray-50 p-3">
-            <p className="text-[10px] text-gray-500 break-all font-mono leading-relaxed select-all">
-              {pixPayload}
-            </p>
-            <p className="text-[10px] text-gray-400 mt-2 text-center">
-              Clique no código para selecionar e copiar
-            </p>
+        </div>
+        {expired && (
+          <div className="absolute inset-0 grid place-items-center">
+            <Button onClick={renew} className="shadow-lg">
+              <RefreshCw /> Gerar novo QR Code
+            </Button>
           </div>
         )}
       </div>
 
-      {/* Instruções */}
-      <div className="rounded-lg bg-blue-50 p-4 text-sm text-blue-800">
-        <p className="font-semibold mb-2">Como pagar:</p>
-        <ol className="space-y-1 text-xs text-left">
-          <li className="flex items-start gap-2">
-            <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-blue-200 text-[10px] font-bold">1</span>
-            <span>Abra o app do seu banco</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-blue-200 text-[10px] font-bold">2</span>
-            <span>Escolha "Pix" → "Copia e Cola" ou escaneie o QR Code</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-blue-200 text-[10px] font-bold">3</span>
-            <span>Confirme e aguarde a aprovação</span>
-          </li>
+      <div className="text-center">
+        <p className="text-sm text-muted-foreground">Valor a pagar</p>
+        <p className="font-display text-3xl font-bold text-foreground">{brl(valor)}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Beneficiário: <span className="font-semibold text-foreground">{beneficiario}</span>
+        </p>
+      </div>
+
+      <div className={cn("rounded-xl border p-3 text-center transition-colors", timerBox)} aria-live="polite">
+        <div className="flex items-center justify-center gap-2">
+          <Clock className={cn("h-5 w-5", timerTone)} aria-hidden="true" />
+          <span className={cn("font-mono text-2xl font-bold tabular-nums", timerTone)}>
+            {minutes}:{secs.toString().padStart(2, "0")}
+          </span>
+        </div>
+        <p className={cn("mt-1 text-xs", timerTone)}>
+          {expired ? "QR Code expirado — gere um novo para pagar" : "Escaneie o QR Code ou copie o código abaixo"}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Button
+          onClick={expired ? renew : handleCopy}
+          size="lg"
+          className="w-full bg-success text-base font-semibold text-background hover:bg-success/90"
+        >
+          {expired ? (
+            <>
+              <RefreshCw /> Gerar novo código
+            </>
+          ) : copied ? (
+            <>
+              <Check /> Código copiado!
+            </>
+          ) : (
+            <>
+              <Copy /> Copiar código PIX
+            </>
+          )}
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowPayload((v) => !v)}
+          className="w-full text-xs"
+          aria-expanded={showPayload}
+        >
+          <QrCode /> {showPayload ? "Ocultar" : "Mostrar"} código PIX completo
+        </Button>
+
+        {showPayload && (
+          <p className="select-all break-all rounded-lg border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+            {pixPayload}
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+        <p className="mb-2 font-semibold text-foreground">Como pagar</p>
+        <ol className="space-y-1.5 text-xs text-muted-foreground">
+          {[
+            "Abra o app do seu banco e entre na área Pix.",
+            "Escolha “Pix Copia e Cola” ou “Ler QR Code”.",
+            "Confirme o valor e pague. Esta tela atualiza sozinha quando a loja confirmar.",
+          ].map((texto, i) => (
+            <li key={texto} className="flex items-start gap-2">
+              <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">
+                {i + 1}
+              </span>
+              <span>{texto}</span>
+            </li>
+          ))}
         </ol>
       </div>
     </div>
