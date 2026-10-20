@@ -1,64 +1,65 @@
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { friendlyDbError, isMissingFunction } from "./db-errors";
+import {
+  isUuid,
+  normalizeOrder,
+  parseNovoPedido,
+  type NovoPedido,
+  type NovoPedidoInput,
+  type OnlineOrder,
+} from "./online-order";
 
-function createServerSupabaseClient() {
-  const url = process.env['SUPABASE_URL'];
-  const anonKey = process.env['VITE_SUPABASE_PUBLISHABLE_KEY'];
-  
-  if (!url || !anonKey) {
-    throw new Error("Configuração do banco de dados indisponível");
-  }
-  
-  return createClient<Database>(url, anonKey, {
+function serverSupabase() {
+  // Runtime env first; build-time VITE_* values are inlined as a last resort so the
+  // store keeps working on hosts where server env vars were not configured.
+  const url = (
+    process.env["SUPABASE_URL"] ||
+    process.env["VITE_SUPABASE_URL"] ||
+    import.meta.env["VITE_SUPABASE_URL"] ||
+    ""
+  ).replace(/\/+$/, "");
+  const key =
+    process.env["SUPABASE_PUBLISHABLE_KEY"] ||
+    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
+    import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
+    "";
+
+  if (!url || !key) throw new Error("Loja temporariamente indisponível: configuração do banco ausente.");
+
+  return createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (input, init) => {
+        const headers = new Headers(init?.headers);
+        // New sb_publishable_ keys are opaque strings and are rejected as bearer tokens.
+        if (key.startsWith("sb_") && headers.get("Authorization") === `Bearer ${key}`) headers.delete("Authorization");
+        headers.set("apikey", key);
+        return fetch(input, { ...init, headers });
+      },
+    },
   });
 }
 
-/**
- * Cria um pedido online usando queries diretas do Supabase.
- * Fallback para quando a função SQL criar_pedido_online não está disponível.
- * Esta função permite vendas sem autenticação (anon).
- */
-async function criarPedidoOnlineFallback(db: ReturnType<typeof createClient>, {
-  token,
-  itens,
-  cliente,
-  endereco,
-  telefone,
-  cupom,
-}: {
-  token: string;
-  itens: Array<{ produto_id: string; quantidade: number }>;
-  cliente: string;
-  endereco: string;
-  telefone: string;
-  cupom?: string;
-}) {
-  // Busca os produtos ativos
+type ServerDb = ReturnType<typeof serverSupabase>;
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Usado apenas se a função SQL criar_pedido_online não existir no banco. Preços sempre vêm do banco. */
+async function inserirPedidoDireto(db: ServerDb, pedido: NovoPedido): Promise<{ token: string; pedido: OnlineOrder }> {
+  const ids = [...new Set(pedido.itens.map((i) => i.produto_id))];
   const { data: produtos, error: produtosError } = await db
     .from("produtos")
     .select("id, nome, preco")
-    .in("id", itens.map((i) => i.produto_id))
+    .in("id", ids)
     .eq("ativo", true);
+  if (produtosError) throw new Error(friendlyDbError(produtosError, "Não foi possível validar os produtos"));
 
-  if (produtosError) {
-    throw new Error("Erro ao buscar produtos");
-  }
-
-  if (!produtos || produtos.length !== itens.length) {
-    throw new Error("Um ou mais produtos não estão disponíveis");
-  }
-
-  // Calcula subtotal
-  let subtotal = 0;
-  const itensCompletos = itens.map((item) => {
-    const produto = produtos.find((p) => p.id === item.produto_id);
-    if (!produto) {
-      throw new Error("Produto não encontrado");
-    }
-    const valor = Number(produto.preco) * item.quantidade;
-    subtotal += valor;
+  const porId = new Map((produtos ?? []).map((p) => [p.id, p]));
+  const itens = pedido.itens.map((item) => {
+    const produto = porId.get(item.produto_id);
+    if (!produto) throw new Error("Produto indisponível");
     return {
       nome: produto.nome,
       produto_id: produto.id,
@@ -66,225 +67,98 @@ async function criarPedidoOnlineFallback(db: ReturnType<typeof createClient>, {
       preco_unitario: Number(produto.preco),
     };
   });
+  const subtotal = round2(itens.reduce((s, i) => s + i.preco_unitario * i.quantidade, 0));
 
-  // Busca taxa de entrega
-  let taxaEntrega = 0;
-  const { data: config } = await db
-    .from("loja_config")
-    .select("taxa_entrega")
-    .eq("id", 1)
-    .single();
-  
-  if (config && config.taxa_entrega) {
-    taxaEntrega = Number(config.taxa_entrega);
-  }
+  const { data: config } = await db.from("loja_config").select("taxa_entrega").eq("id", 1).maybeSingle();
+  const taxaEntrega = Number(config?.taxa_entrega ?? 0) || 0;
 
-  // Valida cupom se informado
   let desconto = 0;
-  if (cupom && cupom.trim()) {
-    const { data: cupomData } = await db
+  if (pedido.cupom) {
+    const { data: cupom } = await db
       .from("cupons")
       .select("percentual")
-      .ilike("codigo", cupom.trim())
+      .ilike("codigo", pedido.cupom.replace(/[%_\\]/g, "\\$&"))
       .eq("ativo", true)
-      .single();
-    
-    if (!cupomData) {
-      throw new Error("Cupom inválido");
-    }
-    desconto = Math.round(subtotal * Number(cupomData.percentual) / 100, 2);
+      .maybeSingle();
+    if (!cupom) throw new Error("Cupom inválido");
+    desconto = round2((subtotal * Number(cupom.percentual)) / 100);
   }
 
-  const total = subtotal - desconto + taxaEntrega;
+  const row = {
+    id: crypto.randomUUID(),
+    token: pedido.token,
+    cliente: pedido.cliente,
+    telefone: pedido.telefone,
+    endereco: pedido.endereco,
+    itens,
+    subtotal,
+    desconto,
+    taxa_entrega: taxaEntrega,
+    total: round2(subtotal - desconto + taxaEntrega),
+    cupom: pedido.cupom || null,
+    status: "aguardando_pagamento",
+    created_at: new Date().toISOString(),
+  };
+  // No .select(): anonymous clients may insert but not read the table back.
+  const { error } = await db.from("pedidos_online").insert(row);
+  if (error) throw new Error(friendlyDbError(error, "Não foi possível registrar o pedido"));
 
-  // Verifica se a tabela pedidos_online existe
-  const { data: tableCheck, error: tableError } = await db
-    .from("pedidos_online")
-    .select("id")
-    .limit(1);
-
-  if (tableError && (tableError.message.includes("does not exist") || tableError.code === "42P01")) {
-    throw new Error("A loja online ainda não está configurada. Execute a migração SQL no Lovable Cloud (Cloud → Database → SQL Editor) usando o arquivo supabase/migrations/0001_online_store.sql");
-  }
-
-  // Insere o pedido
-  const { data: pedido, error: insertError } = await db
-    .from("pedidos_online")
-    .insert({
-      token,
-      cliente: cliente.trim(),
-      telefone: telefone.trim(),
-      endereco: endereco.trim(),
-      itens: itensCompletos,
-      subtotal,
-      desconto,
-      taxa_entrega: taxaEntrega,
-      total,
-      cupom: cupom?.trim() || null,
-      status: "aguardando_pagamento",
-    })
-    .select()
-    .single();
-
-  if (insertError) {
-    // Se a tabela não existe, dá uma mensagem clara
-    if (insertError.message.includes("does not exist") || insertError.code === "42P01") {
-      throw new Error("A loja online ainda não está configurada. Execute a migração SQL no Lovable Cloud (Cloud → Database → SQL Editor) usando o arquivo supabase/migrations/0001_online_store.sql");
-    }
-    throw new Error(insertError.message || "Erro ao criar pedido");
-  }
-
-  return { token, pedido };
+  const { token: _token, ...publico } = row;
+  const normalized = normalizeOrder(publico);
+  if (!normalized) throw new Error("Falha ao montar o pedido");
+  return { token: pedido.token, pedido: normalized };
 }
 
 /**
- * Cria um pedido online usando a função criar_pedido_online do banco.
- * Se a função não estiver disponível (schema cache), usa fallback com queries diretas.
- * Esta função permite vendas sem autenticação (anon).
- * Retorna o token do pedido para consulta posterior.
+ * Cria um pedido online sem login. Os preços são recalculados no banco.
+ * Chamar como `criarPedidoOnline({ data: { ... } })`.
  */
-export const criarPedidoOnline = createServerFn({ method: "POST" }).handler(
-  async ({
-    itens,
-    cliente,
-    endereco,
-    telefone,
-    cupom,
-  }: {
-    itens: Array<{ produto_id: string; quantidade: number }>;
-    cliente: string;
-    endereco: string;
-    telefone: string;
-    cupom?: string;
-  }) => {
-    const db = createServerSupabaseClient();
-    
-    // Gera um token UUID único para este pedido
-    const token = crypto.randomUUID();
-    
-    // Tenta usar a função SQL primeiro
-    const { data, error } = await db.rpc("criar_pedido_online", {
-      _token: token,
-      _cliente: cliente,
-      _telefone: telefone,
-      _endereco: endereco,
-      _itens: itens,
-      _cupom: cupom || "",
+export const criarPedidoOnline = createServerFn({ method: "POST" })
+  .validator((input: NovoPedidoInput) => parseNovoPedido(input))
+  .handler(async ({ data }): Promise<{ token: string; pedido: OnlineOrder }> => {
+    const db = serverSupabase();
+    const { data: result, error } = await db.rpc("criar_pedido_online", {
+      _token: data.token,
+      _cliente: data.cliente,
+      _telefone: data.telefone,
+      _endereco: data.endereco,
+      _itens: data.itens,
+      _cupom: data.cupom,
     });
-    
-    // Se a função não existe (schema cache) ou a tabela não existe, usa fallback
-    if (error && (
-      error.message.includes("Could not find the function") || 
-      error.code === "PGRST202" ||
-      error.message.includes("does not exist") ||
-      error.code === "42P01"
-    )) {
-      return criarPedidoOnlineFallback(db, { token, itens, cliente, endereco, telefone, cupom });
-    }
-    
+
     if (error) {
-      throw new Error(error.message || "Erro ao criar pedido");
+      if (isMissingFunction(error)) return inserirPedidoDireto(db, data);
+      throw new Error(friendlyDbError(error, "Não foi possível registrar o pedido"));
     }
-    
-    // Retorna o token e os dados do pedido
-    return { token, pedido: data };
-  }
-);
+
+    const pedido = normalizeOrder(result);
+    if (!pedido) throw new Error("O banco não confirmou o pedido. Tente novamente.");
+    return { token: data.token, pedido };
+  });
 
 /**
- * Consulta um pedido online pelo token.
- * Permite acesso sem autenticação (anon).
- * Se a função SQL não estiver disponível, usa query direta.
+ * Consulta um pedido pelo token secreto (link de acompanhamento). Retorna `null` se não existir.
+ * Chamar como `consultarPedidoOnline({ data: { token } })`.
  */
-export const consultarPedidoOnline = createServerFn({ method: "GET" }).handler(
-  async ({ token }: { token: string }) => {
-    const db = createServerSupabaseClient();
-    
-    // Tenta usar a função SQL primeiro
-    const { data, error } = await db.rpc("consultar_pedido_online", {
-      _token: token,
-    });
-    
-    // Se a função não existe (schema cache) ou a tabela não existe, usa query direta
-    if (error && (
-      error.message.includes("Could not find the function") || 
-      error.code === "PGRST202" ||
-      error.message.includes("does not exist") ||
-      error.code === "42P01"
-    )) {
-      const { data: pedido, error: queryError } = await db
-        .from("pedidos_online")
-        .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, cupom, status, created_at")
-        .eq("token", token)
-        .single();
-      
-      if (queryError && (queryError.message.includes("does not exist") || queryError.code === "42P01")) {
-        throw new Error("A loja online ainda não está configurada. Execute a migração SQL no Lovable Cloud.");
-      }
-      
-      if (queryError || !pedido) {
-        throw new Error("Pedido não encontrado");
-      }
+export const consultarPedidoOnline = createServerFn({ method: "GET" })
+  .validator((input: { token: string }) => {
+    const token = String(input?.token ?? "").trim();
+    if (!isUuid(token)) throw new Error("Código de pedido inválido");
+    return { token: token.toLowerCase() };
+  })
+  .handler(async ({ data }): Promise<OnlineOrder | null> => {
+    const db = serverSupabase();
+    const { data: result, error } = await db.rpc("consultar_pedido_online", { _token: data.token });
+    if (!error) return normalizeOrder(result);
+    if (!isMissingFunction(error)) throw new Error(friendlyDbError(error, "Não foi possível consultar o pedido"));
 
-      // Normaliza itens: pode vir como array, string JSON, ou null/undefined
-      let normalizedItens = [];
-      if (Array.isArray(pedido.itens)) {
-        normalizedItens = pedido.itens;
-      } else if (typeof pedido.itens === 'string') {
-        try {
-          const parsed = JSON.parse(pedido.itens);
-          normalizedItens = Array.isArray(parsed) ? parsed : [];
-        } catch {
-          normalizedItens = [];
-        }
-      }
-
-      const normalizedPedido = {
-        ...pedido,
-        itens: normalizedItens,
-      };
-      
-      return normalizedPedido;
-    }
-    
-    if (error) {
-      throw new Error("Pedido não encontrado");
-    }
-    
-    if (!data) {
-      throw new Error("Pedido não encontrado");
-    }
-
-    // Normaliza itens: pode vir como array, string JSON, ou null/undefined
-    // A função SQL to_jsonb() converte jsonb para string JSON, então precisamos fazer parse
-    let normalizedItens = [];
-    if (Array.isArray(data.itens)) {
-      normalizedItens = data.itens;
-    } else if (typeof data.itens === 'string') {
-      try {
-        const parsed = JSON.parse(data.itens);
-        normalizedItens = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        normalizedItens = [];
-      }
-    }
-
-    // Garante que itens seja sempre um array - data pode vir como objeto com chaves diferentes
-    const normalizedData = {
-      id: data.id || "",
-      cliente: data.cliente || "",
-      telefone: data.telefone || "",
-      endereco: data.endereco || "",
-      itens: normalizedItens,
-      subtotal: Number(data.subtotal) || 0,
-      desconto: Number(data.desconto) || 0,
-      taxa_entrega: Number(data.taxa_entrega) || 0,
-      total: Number(data.total) || 0,
-      cupom: data.cupom || null,
-      status: data.status || "aguardando_pagamento",
-      created_at: data.created_at || new Date().toISOString(),
-    };
-
-    return normalizedData;
-  }
-);
+    const { data: row, error: queryError } = await db
+      .from("pedidos_online")
+      .select("*")
+      .eq("token", data.token)
+      .maybeSingle();
+    if (queryError) throw new Error(friendlyDbError(queryError, "Não foi possível consultar o pedido"));
+    if (!row) return null;
+    const { token: _token, ...publico } = row;
+    return normalizeOrder(publico);
+  });

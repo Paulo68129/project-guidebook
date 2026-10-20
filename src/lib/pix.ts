@@ -2,6 +2,7 @@
  * Gera o payload PIX EMV QR Code no padrão do Banco Central do Brasil.
  * Referência: https://www.bcb.gov.br/estabilidadefinanceira/pix
  */
+import QRCode from "qrcode";
 
 // Dados fixos do beneficiário
 const PIX_CONFIG = {
@@ -62,11 +63,20 @@ function generateTxId(): string {
 }
 
 /**
+ * TXID estável derivado do id do pedido: o QR Code não muda a cada atualização da tela
+ * e a loja consegue identificar o pagamento pelo identificador no extrato.
+ */
+export function pixTxidFromOrderId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 25);
+}
+
+/**
  * Gera o payload PIX completo para um valor dado.
  * @param valor - Valor da transação em reais (número)
+ * @param txid - Identificador alfanumérico (até 25 caracteres). Aleatório se omitido.
  * @returns String do payload PIX EMV QR Code
  */
-export function generatePixPayload(valor: number): string {
+export function generatePixPayload(valor: number, txid?: string): string {
   let payload = "";
 
   // 00: Payload Format Indicator
@@ -101,8 +111,8 @@ export function generatePixPayload(valor: number): string {
 
   // 62: Additional Data Field - TXID
   let additional = "";
-  const txid = generateTxId();
-  additional = addField(additional, "05", txid);
+  const cleanTxid = (txid ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 25);
+  additional = addField(additional, "05", cleanTxid || generateTxId());
   payload = addField(payload, "62", additional);
 
   // 63: CRC16-CCITT - IMPORTANT: o CRC deve incluir "6304" no cálculo
@@ -144,6 +154,19 @@ export function getPixConfig() {
     nome: PIX_CONFIG.nomeExibicao,
     chave: maskPixChave(PIX_CONFIG.chave),
   };
+}
+
+/**
+ * Gera a imagem do QR Code. Se o canvas falhar (navegadores antigos, bloqueios),
+ * gera um SVG puro como alternativa.
+ */
+export async function gerarQrCodePix(payload: string): Promise<string> {
+  try {
+    return await QRCode.toDataURL(payload, { width: 320, margin: 2, errorCorrectionLevel: "M" });
+  } catch {
+    const svg = await QRCode.toString(payload, { type: "svg", margin: 2, errorCorrectionLevel: "M" });
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }
 }
 
 /**
