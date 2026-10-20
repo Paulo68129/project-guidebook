@@ -7,6 +7,7 @@ export const ORDER_STATUSES = [
   "saiu",
   "entregue",
   "cancelado",
+  "expirado",
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
@@ -17,6 +18,7 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
   saiu: "Saiu para entrega",
   entregue: "Entregue",
   cancelado: "Cancelado",
+  expirado: "Tempo de pagamento expirado",
 };
 
 export const NEXT_STATUS: Record<OrderStatus, { status: OrderStatus; label: string } | null> = {
@@ -26,10 +28,11 @@ export const NEXT_STATUS: Record<OrderStatus, { status: OrderStatus; label: stri
   saiu: { status: "entregue", label: "Marcar entregue" },
   entregue: null,
   cancelado: null,
+  expirado: null,
 };
 
 export function isFinalStatus(status: OrderStatus) {
-  return status === "entregue" || status === "cancelado";
+  return status === "entregue" || status === "cancelado" || status === "expirado";
 }
 
 export function normalizeStatus(value: unknown): OrderStatus {
@@ -56,6 +59,8 @@ export type OnlineOrder = {
   cupom: string | null;
   status: OrderStatus;
   created_at: string;
+  /** Tempo limite para pagamento (15 min após criação) */
+  expires_at?: string | null;
   /** Presente apenas para a equipe; permite compartilhar o link de acompanhamento. */
   token?: string;
   /** `undefined` quando a coluna ainda não existe no banco (migração 0002 pendente). */
@@ -140,6 +145,7 @@ export function normalizeOrder(raw: unknown): OnlineOrder | null {
     cupom: r["cupom"] ? String(r["cupom"]) : null,
     status: normalizeStatus(r["status"]),
     created_at: r["created_at"] ? String(r["created_at"]) : new Date().toISOString(),
+    expires_at: r["expires_at"] ? String(r["expires_at"]) : null,
   };
   if (typeof r["token"] === "string") order.token = r["token"];
   if ("motoboy_id" in r) order.motoboy_id = r["motoboy_id"] ? String(r["motoboy_id"]) : null;

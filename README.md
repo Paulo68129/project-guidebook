@@ -22,7 +22,7 @@ Uma plataforma completa para gerenciamento de pizzarias, integrando estoque, pro
 
 ### 🌐 Demo Online v1 teste
 
-[Acesse o Demo]()
+[Acesse a Loja Online](https://project-guidebook.vercel.app/loja)
 
 ### 🎥 Vídeo Demonstração v2 OFC 
 
@@ -47,6 +47,7 @@ Uma plataforma completa para gerenciamento de pizzarias, integrando estoque, pro
 - [📈 Evolução do Projeto](#evolução-do-projeto)
 - [✨ Funcionalidades](#funcionalidades)
 - [💳 Pagamento PIX](#pagamento-pix)
+- [🔍 Rastreamento de Pedidos](#rastreamento-de-pedidos)
 - [📊 Métricas do Projeto](#métricas-do-projeto)
 - [🤝 Casos de Uso](#casos-de-uso)
 - [⭐ Diferenciais Competitivos](#diferenciais-competitivos)
@@ -160,11 +161,13 @@ Montar Carrinho → Inserir Dados → Finalizar Pedido → Pagar via PIX
 **Área do Cliente:**
 - Link público para pedidos
 - Catálogo online com carrinho de compras
-- Finalização do pedido
+- Finalização do pedido com pagamento PIX
+- Rastreamento em tempo real via código do pedido
 
 **Gestão de Pedidos:**
 - Atualização em tempo real com notificação sonora e alertas visuais
 - Controle completo do fluxo com quadro Kanban
+- Sincronização automática entre Loja Online e PDV
 
 ```
 Novos Pedidos → Em Preparo → Saiu para Entrega → Entregue
@@ -174,18 +177,35 @@ Novos Pedidos → Em Preparo → Saiu para Entrega → Entregue
 
 ### 💳 Pagamento PIX
 
-**QR Code Dinâmico:**
+**PIX Estático (Fallback):**
 - Geração automática do QR Code PIX EMV conforme padrão do Banco Central
 - Valor fixo da transação no código
 - TXID único para rastreamento de cada pagamento
 - CRC16-CCITT válido para aceitação pelos apps bancários
 
+**PIX Dinâmico via Enviare (Opcional):**
+- Integração com API Enviare para cobranças PIX dinâmicas
+- Webhook para confirmação automática de pagamento
+- Fallback automático para PIX estático se a API estiver indisponível
+- Configuração via variáveis de ambiente (`ENVIARE_API_KEY`, `ENVIARE_MERCHANT_ID`)
+
+**Timer de Pagamento:**
+- Tempo limite de 15 minutos para pagamento
+- Expiração automática de pedidos não pagos
+- Timer regressivo visual (verde → amarelo → vermelho)
+- Verificação em tempo real do status de expiração
+
 **Modal de Pagamento:**
-- Timer regressivo visual de 5 minutos (verde → amarelo → vermelho)
 - Botão "Copiar código PIX" com feedback visual
 - Toggle para mostrar/ocultar o BR Code completo
 - Instruções passo a passo de como pagar
 - Dados sensíveis mascarados na tela (chave PIX e telefone)
+
+**Confirmação Automática:**
+- Função `confirmar_pagamento_online` vincula pedido online ao PDV
+- Baixa automática de estoque ao confirmar pagamento
+- Registro de auditoria na tabela `pagamentos_online`
+- Criação automática de venda no sistema
 
 **Impressão Térmica:**
 - QR Code no cupom para pagamento rápido
@@ -344,6 +364,7 @@ Investimento estimado: R$ 1.488,59
 - Gráficos com [Recharts](https://recharts.org/)
 - Formulários: `react-hook-form` + `zod`
 - QR Code: `qrcode` para geração de imagens PIX
+- Supabase Realtime para atualizações em tempo real
 
 ### Backend
 
@@ -351,6 +372,8 @@ Investimento estimado: R$ 1.488,59
 - `@supabase/supabase-js`
 - `@lovable.dev/cloud-auth-js` para OAuth (Google)
 - Nitro como servidor (alvo padrão: Cloudflare no build)
+- Integração Enviare para PIX dinâmico (opcional)
+- Supabase Edge Functions para webhooks
 
 ### Qualidade
 
@@ -383,19 +406,26 @@ Pontos relevantes:
 
 ```mermaid
 graph LR
-    A[Cliente faz pedido] --> B[PDV registra venda]
-    B --> C[Baixa automática de estoque]
-    C --> D[Atualização em tempo real]
-    D --> E[Kanban de delivery]
-    E --> F[Preparo → Entrega → Entregue]
+    A[Cliente faz pedido] --> B{Via qual canal?}
+    B -->|PDV| C[PDV registra venda]
+    B -->|Loja Online| D[Pagamento PIX]
+    D -->|Pago| E[Confirmação automática]
+    E --> C
+    C --> F[Baixa automática de estoque]
+    F --> G[Atualização em tempo real]
+    G --> H[Kanban de delivery]
+    H --> I[Preparo → Entrega → Entregue]
 ```
 
-1. **Cliente** faz o pedido via PDV ou Delivery Online
-2. **Sistema** registra a venda via função RPC `registrar_venda`
-3. **Estoque** é baixado automaticamente conforme ficha técnica
-4. **Painel** atualiza em tempo real via Supabase Realtime
-5. **Equipe** acompanha o fluxo no Kanban de delivery
-6. **Financeiro** registra receita e custo automaticamente
+1. **Cliente** faz o pedido via PDV ou Loja Online
+2. **Loja Online**: Cliente paga via PIX (estático ou dinâmico via Enviare)
+3. **Confirmação**: Pagamento confirmado automaticamente via webhook ou manualmente
+4. **Sistema**: Registra a venda e vincula ao pedido online
+5. **Estoque**: Baixa automática conforme ficha técnica
+6. **Painel**: Atualização em tempo real via Supabase Realtime
+7. **Equipe**: Acompanha o fluxo no Kanban de delivery
+8. **Cliente**: Rastreia o pedido em tempo real via código
+9. **Financeiro**: Registra receita e custo automaticamente
 
 ---
 
@@ -407,6 +437,7 @@ graph LR
 | `/auth` | Público | Login, cadastro e Google OAuth |
 | `/loja` | Público | Loja Online - catálogo e carrinho |
 | `/pagamento/$vendaId` | Público | Página de pagamento PIX com QR Code |
+| `/rastrear` | Público | Rastreamento de pedido por código |
 | `/dashboard` | Autenticado | Central |
 | `/pdv` | Autenticado | Ponto de venda |
 | `/delivery` | Autenticado | Quadro de pedidos |
@@ -417,6 +448,30 @@ graph LR
 | `/alertas` | Autenticado | Alertas de estoque |
 | `/config` | Autenticado | Configurações da loja |
 
+## 🔍 Rastreamento de Pedidos
+
+Os clientes podem rastrear seus pedidos em tempo real através da página `/rastrear`:
+
+**Funcionalidades:**
+- Busca por código do pedido (token único)
+- Timeline visual do status do pedido
+- Atualização automática via Supabase Realtime
+- Exibição de informações do cliente, endereço e itens
+- Cupom fiscal/impressão do pedido
+- Notificações de status em tempo real
+
+**Fluxo de Status:**
+```
+Aguardando Pagamento → Pago → Em Preparação → Saiu para Entrega → Entregue
+```
+
+**Tecnologia:**
+- Supabase Realtime para atualizações instantâneas
+- Polling de fallback a cada 10 segundos
+- Integração com sistema de pagamentos PIX
+
+---
+
 ## 📁 Modelo de dados
 
 Tabelas e funções utilizadas pelo código da aplicação (Supabase/Postgres):
@@ -426,15 +481,23 @@ Tabelas e funções utilizadas pelo código da aplicação (Supabase/Postgres):
 | `ingredientes` | `nome`, `unidade`, `quantidade`, `estoque_minimo`, `custo_unitario`, `validade` |
 | `produtos` | `nome`, `categoria`, `preco`, `descricao`, `ativo` |
 | `receitas` | Ficha técnica: `produto_id`, `ingrediente_id`, `quantidade` |
-| `vendas` | `numero`, `tipo` (balcão/delivery), `status`, `cliente`, `telefone`, `endereco`, `motoboy_id`, `subtotal`, `desconto`, `taxa_entrega`, `total`, `custo`, `lucro`, `created_at` |
+| `vendas` | `numero`, `tipo` (balcão/delivery/online), `status`, `cliente`, `telefone`, `endereco`, `motoboy_id`, `subtotal`, `desconto`, `taxa_entrega`, `total`, `custo`, `lucro`, `created_at` |
 | `venda_itens` | Itens da venda: `produto_id`, `nome`, `quantidade` |
+| `pedidos_online` | Pedidos da Loja Online: `cliente`, `telefone`, `endereco`, `itens`, `status`, `status_pagamento`, `expires_at`, `venda_id` |
+| `pagamentos_online` | Auditoria de pagamentos: `pedido_id`, `transaction_id`, `status`, `metodo`, `valor` |
 | `motoboys` | `nome`, `telefone`, `ativo` |
 | `cupons` | `codigo`, `percentual`, `ativo` |
 | `loja_config` | Linha única (`id = 1`): `abre`, `fecha`, `taxa_entrega`, `som_alerta` |
 
-**Função RPC:** `registrar_venda(_itens, _tipo, _cliente?, _telefone?, _endereco?, _cupom?)`
+**Funções RPC:**
+- `registrar_venda(_itens, _tipo, _cliente?, _telefone?, _endereco?, _cupom?)` - Registra venda no PDV
+- `confirmar_pagamento_online(_pedido_id)` - Confirma pagamento e vincula pedido online ao PDV
+- `expirar_pedido_online(_token)` - Cancela pedido expirado
+- `verificar_expiracao_pedido(_token)` - Verifica se pedido expirou
+- `listar_pedidos_com_timer()` - Lista pedidos aguardando pagamento com tempo restante
 
 **Status de pedido:** `novo` → `preparo` → `saiu` → `entregue` (ou `cancelado`).
+**Status de pagamento:** `aguardando` → `pago` → `expirado`.
 
 > As migrações SQL não fazem parte dos arquivos analisados. Mantenha-as versionadas no repositório (por exemplo em `supabase/migrations`) e documente aqui o processo de criação do schema.
 
@@ -488,6 +551,15 @@ VITE_SUPABASE_PUBLISHABLE_KEY=<chave-publica>
 
 > Confirme os nomes exatos em `src/integrations/supabase/client.ts`. Nunca versione chaves secretas.
 
+Para PIX dinâmico via Enviare (opcional):
+
+```env
+ENVIARE_API_KEY=<chave-api-enviare>
+ENVIARE_MERCHANT_ID=<id-estabelecimento>
+ENVIARE_WEBHOOK_SECRET=<segredo-hmac>
+ENVIARE_WEBHOOK_URL=<url-webhook-edge-function>
+```
+
 ### Executando em desenvolvimento
 
 ```bash
@@ -518,6 +590,9 @@ Acesse a URL exibida no terminal. Crie a primeira conta em `/auth` (ela será a 
 │   │   ├── __root.tsx
 │   │   ├── index.tsx              # Landing page
 │   │   ├── auth.tsx               # Login / cadastro
+│   │   ├── loja.tsx               # Loja Online
+│   │   ├── rastrear.tsx           # Rastreamento de pedidos
+│   │   ├── pagamento/$vendaId.tsx # Página de pagamento PIX
 │   │   └── _authenticated/        # Rotas protegidas
 │   │       ├── route.tsx          # Guard de autenticação + AppShell
 │   │       ├── dashboard.tsx
@@ -542,7 +617,17 @@ Acesse a URL exibida no terminal. Crie a primeira conta em `/auth` (ela será a 
 │   ├── lib/
 │   │   ├── data.ts                # Queries, tipos e helpers (brl, num, dayKey...)
 │   │   ├── forecast.ts            # Previsão e sugestão de compra
-│   │   └── pix.ts                 # Geração de payload PIX EMV QR Code
+│   │   ├── pix.ts                 # Geração de payload PIX EMV QR Code
+│   │   ├── enviare.ts             # Integração com API Enviare
+│   │   └── online-order.ts        # Funções de pedido online
+│   ├── components/
+│   │   ├── OnlineOrderNFCE.tsx    # Cupom fiscal para pedidos online
+│   │   ├── OnlineOrders.tsx       # Gestão de pedidos online no PDV
+│   │   ├── OrderTracker.tsx       # Componente de rastreamento
+│   │   └── OrderStatusBadge.tsx   # Badge de status do pedido
+│   ├── supabase/
+│   │   ├── migrations/            # Migrações SQL do banco
+│   │   └── functions/             # Edge Functions (webhooks)
 │   ├── router.tsx
 │   ├── routeTree.gen.ts           # Gerado automaticamente
 │   ├── server.ts
@@ -589,6 +674,11 @@ O build é feito pelo Nitro, e o alvo padrão definido pela configuração da Lo
 - PDV
 - Loja Online
 - Pagamento PIX (QR Code EMV)
+- PIX Dinâmico via Enviare (opcional)
+- Confirmação automática de pagamento
+- Timer de expiração de pagamento (15 min)
+- Rastreamento de pedidos online
+- Sincronização Loja Online → PDV
 - Delivery Online
 - Kanban Realtime
 - Financeiro
@@ -600,10 +690,10 @@ O build é feito pelo Nitro, e o alvo padrão definido pela configuração da Lo
 
 ### 🚧 Em Desenvolvimento
 
-- Confirmação automática de pagamento PIX
 - WhatsApp Business
 - Impressão automática sem diálogo
 - Relatórios avançados
+- Dashboard de pagamentos online
 
 ### 🔮 Futuras Versões
 

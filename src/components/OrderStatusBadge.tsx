@@ -1,4 +1,4 @@
-import { BadgeCheck, Bike, ChefHat, CircleX, Clock3, House, type LucideIcon } from "lucide-react";
+import { BadgeCheck, Bike, ChefHat, CircleX, Clock3, House, Timer, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATUS_LABEL, type OrderStatus } from "@/lib/online-order";
 
@@ -9,6 +9,7 @@ export const STATUS_ICON: Record<OrderStatus, LucideIcon> = {
   saiu: Bike,
   entregue: House,
   cancelado: CircleX,
+  expirado: Timer,
 };
 
 const STATUS_STYLE: Record<OrderStatus, string> = {
@@ -18,6 +19,7 @@ const STATUS_STYLE: Record<OrderStatus, string> = {
   saiu: "border-primary/30 bg-primary/15 text-primary",
   entregue: "border-success/20 bg-success/10 text-success",
   cancelado: "border-destructive/30 bg-destructive/15 text-destructive",
+  expirado: "border-destructive/30 bg-destructive/15 text-destructive",
 };
 
 export function OrderStatusBadge({ status, className }: { status: OrderStatus; className?: string }) {

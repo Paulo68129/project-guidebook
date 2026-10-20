@@ -1,4 +1,4 @@
-import { BadgeCheck, Bike, Check, ChefHat, CircleX, Clock3, House, ReceiptText, type LucideIcon } from "lucide-react";
+import { BadgeCheck, Bike, Check, ChefHat, CircleX, Clock3, House, ReceiptText, Timer, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATUS_LABEL, type OrderStatus } from "@/lib/online-order";
 
@@ -12,7 +12,7 @@ const STEPS: Step[] = [
   { label: "Entregue", description: "Pedido entregue. Bom apetite!", icon: House },
 ];
 
-const CURRENT_STEP: Record<Exclude<OrderStatus, "cancelado">, number> = {
+const CURRENT_STEP: Record<Exclude<OrderStatus, "cancelado" | "expirado">, number> = {
   aguardando_pagamento: 1,
   pago: 1,
   preparo: 2,
@@ -20,9 +20,9 @@ const CURRENT_STEP: Record<Exclude<OrderStatus, "cancelado">, number> = {
   entregue: 4,
 };
 
-type StepState = "done" | "active" | "waiting" | "upcoming";
+type StepState = "done" | "active" | "waiting" | "upcoming" | "expired";
 
-function stepState(status: Exclude<OrderStatus, "cancelado">, index: number): StepState {
+function stepState(status: Exclude<OrderStatus, "cancelado" | "expirado">, index: number): StepState {
   const current = CURRENT_STEP[status];
   if (index < current) return "done";
   if (index > current) return "upcoming";
@@ -49,6 +49,24 @@ function CancelledNotice({ className }: { className?: string | undefined }) {
   );
 }
 
+function ExpiredNotice({ className }: { className?: string | undefined }) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-destructive",
+        className,
+      )}
+    >
+      <Timer className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+      <div>
+        <p className="font-semibold">Tempo de pagamento expirado</p>
+        <p className="text-sm text-destructive/80">O tempo para pagamento acabou. Faça um novo pedido para continuar.</p>
+      </div>
+    </div>
+  );
+}
+
 export function OrderTracker({
   status,
   variant = "full",
@@ -59,6 +77,7 @@ export function OrderTracker({
   className?: string;
 }) {
   if (status === "cancelado") return <CancelledNotice className={className} />;
+  if (status === "expirado") return <ExpiredNotice className={className} />;
 
   if (variant === "compact") {
     const current = CURRENT_STEP[status];

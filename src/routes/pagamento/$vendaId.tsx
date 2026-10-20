@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, FileText, Link2, RefreshCw, SearchX, TriangleAlert } from "lucide-react";
+import { ArrowLeft, FileText, Link2, RefreshCw, SearchX, TriangleAlert, Clock, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OnlineOrderNFCE } from "@/components/OnlineOrderNFCE";
 import { OrderStatusBadge } from "@/components/OrderStatusBadge";
@@ -12,6 +12,89 @@ import { PixPaymentSection } from "@/components/PixPaymentSection";
 import { rememberOrder } from "@/hooks/useMyOrders";
 import { buscarPedidoOnline } from "@/lib/online-order-api";
 import { errorMessage, isFinalStatus, orderCode } from "@/lib/online-order";
+
+// Tempo limite para pagamento em segundos (15 minutos)
+const PAYMENT_TIMEOUT_SECONDS = 15 * 60;
+
+function formatTime(seconds: number): string {
+  if (seconds <= 0) return "00:00";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
+function getRemainingSeconds(pedido: { created_at: string; expires_at?: string | null }): number {
+  const expiresAt = pedido.expires_at ? new Date(pedido.expires_at).getTime() : new Date(pedido.created_at).getTime() + PAYMENT_TIMEOUT_SECONDS * 1000;
+  return Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+}
+
+function PaymentCountdown({ pedido, onExpired }: { pedido: { created_at: string; expires_at?: string | null }; onExpired: () => void }) {
+  const [remaining, setRemaining] = useState(getRemainingSeconds(pedido));
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newRemaining = getRemainingSeconds(pedido);
+      setRemaining(newRemaining);
+      if (newRemaining <= 0) {
+        onExpired();
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [pedido, onExpired]);
+
+  const isUrgent = remaining < 120 && remaining > 0; // Menos de 2 minutos
+  const isExpired = remaining <= 0;
+
+  if (isExpired) {
+    return (
+      <div className="rounded-xl border-2 border-destructive bg-destructive/10 p-6 text-center">
+        <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
+        <h2 className="mt-3 font-display text-xl font-bold text-destructive">Tempo de pagamento expirado</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          O tempo para pagamento deste pedido acabou. Faça um novo pedido para continuar.
+        </p>
+        <Button className="mt-4" asChild>
+          <Link to="/loja">
+            <ArrowLeft /> Fazer novo pedido
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-xl border p-4 ${isUrgent ? "border-orange-300 bg-orange-50" : "border bg-card"}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Clock className={`h-5 w-5 ${isUrgent ? "text-orange-500 animate-pulse" : "text-muted-foreground"}`} />
+          <div>
+            <p className="text-sm font-medium">
+              {isUrgent ? "Pague agora! Tempo acabando..." : "Tempo restante para pagamento"}
+            </p>
+            <p className={`text-2xl font-mono font-bold ${isUrgent ? "text-orange-600" : "text-primary"}`}>
+              {formatTime(remaining)}
+            </p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-muted-foreground">Após o tempo</p>
+          <p className="text-xs text-muted-foreground">expirar, o pedido</p>
+          <p className="text-xs text-muted-foreground">será cancelado</p>
+        </div>
+      </div>
+      {isUrgent && (
+        <div className="mt-3">
+          <div className="h-2 rounded-full bg-orange-200">
+            <div
+              className="h-full rounded-full bg-orange-500 transition-all duration-1000"
+              style={{ width: `${Math.min(100, (remaining / 120) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/pagamento/$vendaId")({
   head: () => ({
@@ -67,6 +150,7 @@ function StateCard({
 function PagamentoPage() {
   const { vendaId: token } = Route.useParams();
   const [showNFCE, setShowNFCE] = useState(false);
+  const [pedidoExpirado, setPedidoExpirado] = useState(false);
 
   const pedidoQ = useQuery({
     queryKey: ["pedido-online", token],
@@ -90,6 +174,13 @@ function PagamentoPage() {
       toast.success("Link de acompanhamento copiado");
     } catch {
       toast.error("Não foi possível copiar. Copie o endereço da barra do navegador.");
+    }
+  }
+
+  function handleExpired() {
+    if (!pedidoExpirado) {
+      setPedidoExpirado(true);
+      toast.error("O tempo de pagamento expirou. Faça um novo pedido.");
     }
   }
 
@@ -173,7 +264,18 @@ function PagamentoPage() {
         )}
       </section>
 
-      <PixPaymentSection pedido={pedido} />
+      {/* Timer de pagamento - mostra apenas se aguardando pagamento */}
+      {pedido.status === "aguardando_pagamento" && !pedidoExpirado && (
+        <PaymentCountdown pedido={pedido} onExpired={handleExpired} />
+      )}
+      {pedidoExpirado && (
+        <PaymentCountdown pedido={pedido} onExpired={handleExpired} />
+      )}
+
+      {/* Seção de pagamento - esconde se expirado */}
+      {!pedidoExpirado && pedido.status === "aguardando_pagamento" && (
+        <PixPaymentSection pedido={pedido} />
+      )}
 
       <OrderSummary pedido={pedido} />
 

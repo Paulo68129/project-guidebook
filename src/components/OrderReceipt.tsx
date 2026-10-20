@@ -6,6 +6,17 @@ import type { OnlineOrder } from "@/lib/online-order";
 
 export function OrderReceipt({ order }: { order: OnlineOrder }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Normaliza itens que podem vir como string JSON
+  let normalizedItens = order.itens || [];
+  if (typeof normalizedItens === "string") {
+    try {
+      const parsed = JSON.parse(normalizedItens);
+      normalizedItens = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      normalizedItens = [];
+    }
+  }
+  if (!Array.isArray(normalizedItens)) normalizedItens = [];
   function print() {
     if (!ref.current) return;
     const frame = document.createElement("iframe");
@@ -23,7 +34,7 @@ export function OrderReceipt({ order }: { order: OnlineOrder }) {
       <p>Comprovante de pedido · {order.id.slice(0, 8)}</p>
       <p>{new Date(order.created_at).toLocaleString("pt-BR")}</p>
       <p>{order.cliente} · {order.telefone}<br />{order.endereco}</p>
-      <ul>{order.itens && order.itens.length > 0 ? order.itens.map((i, idx) => <li key={idx}>{i.quantidade}× {i.nome} — {brl(Number(i.preco_unitario) * i.quantidade)}</li>) : <li>Nenhum item no pedido</li>}</ul>
+      <ul>{normalizedItens && normalizedItens.length > 0 ? normalizedItens.map((i: any, idx: number) => <li key={idx}>{i.quantidade}× {i.nome} — {brl(Number(i.preco_unitario) * i.quantidade)}</li>) : <li>Nenhum item no pedido</li>}</ul>
       <p>Subtotal: {brl(Number(order.subtotal))}<br />Desconto: {brl(Number(order.desconto))}<br />Entrega: {brl(Number(order.taxa_entrega))}</p>
       <p className="font-bold">Total: {brl(Number(order.total))}</p>
       <p>Pagamento não recebido · Aguardando pagamento</p>

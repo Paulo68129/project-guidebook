@@ -22,6 +22,18 @@ export function OnlineOrderNFCE({ pedido, onPrint, onClose }: OnlineOrderNFCEPro
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const pixConfig = getPixConfig();
 
+  // Normaliza itens que podem vir como string JSON do Supabase
+  let normalizedItens = pedido.itens || [];
+  if (typeof normalizedItens === "string") {
+    try {
+      const parsed = JSON.parse(normalizedItens);
+      normalizedItens = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      normalizedItens = [];
+    }
+  }
+  if (!Array.isArray(normalizedItens)) normalizedItens = [];
+
   // Gerar QR Code PIX quando o componente montar
   useEffect(() => {
     const total = Number(pedido.total);
@@ -69,8 +81,8 @@ export function OnlineOrderNFCE({ pedido, onPrint, onClose }: OnlineOrderNFCEPro
         <div className="border-t border-b border-black py-2 mb-3">
           <p className="text-xs font-bold mb-2">ITENS DO PEDIDO</p>
           <div className="space-y-1">
-            {pedido.itens && pedido.itens.length > 0 ? (
-              pedido.itens.map((item, idx) => (
+            {normalizedItens && normalizedItens.length > 0 ? (
+              normalizedItens.map((item: any, idx: number) => (
                 <div key={idx} className="text-xs flex justify-between">
                   <span>
                     {item.quantidade}x {item.nome}
