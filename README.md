@@ -22,6 +22,7 @@ Uma plataforma completa para gerenciamento de pizzarias, integrando estoque, pro
 
 ### 🌐 Demo Online v1 teste
 
+[Acesse o Demo](https://v0-pizza-stockai.vercel.app/)
 [Acesse a Loja Online](https://project-guidebook.vercel.app/loja)
 
 ### 🎥 Vídeo Demonstração v2 OFC 
