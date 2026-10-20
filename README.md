@@ -50,6 +50,7 @@ Uma plataforma completa para gerenciamento de pizzarias, integrando estoque, pro
 - [💳 Pagamento PIX](#pagamento-pix)
 - [🔍 Rastreamento de Pedidos](#rastreamento-de-pedidos)
 - [🔔 Integração Loja Online → Delivery](#integração-loja-online--delivery)
+- [⭐ Sistema de Avaliações e Feedbacks](#sistema-de-avaliações-e-feedbacks)
 - [📊 Métricas do Projeto](#métricas-do-projeto)
 - [🤝 Casos de Uso](#casos-de-uso)
 - [⭐ Diferenciais Competitivos](#diferenciais-competitivos)
@@ -440,6 +441,7 @@ graph LR
 | `/loja` | Público | Loja Online - catálogo e carrinho |
 | `/pagamento/$vendaId` | Público | Página de pagamento PIX com QR Code |
 | `/rastrear` | Público | Rastreamento de pedido por código |
+| `/avaliacoes` | Público | Página de avaliações e feedbacks |
 | `/dashboard` | Autenticado | Central |
 | `/pdv` | Autenticado | Ponto de venda |
 | `/delivery` | Autenticado | Quadro de pedidos |
@@ -561,6 +563,76 @@ Sistema completo de integração entre a Loja Online e o módulo Delivery, garan
 - `useNewOrderSound()` - Gerencia alertas sonoros com Web Audio API
 - `useOnlineOrdersRealtime()` - Subscrição Realtime para mudanças instantâneas
 
+### ✅ Aceite e Recusa de Pedidos
+
+- Na tela de Delivery e PDV, o atendente pode **aceitar** ou **recusar** cada pedido
+- Ao aceitar, o pedido é automaticamente movido para "Em Preparo"
+- Ao recusar, o atendente deve informar o motivo da recusa
+- O cliente recebe notificação instantânea via rastreamento
+- O motivo da recusa é exibido ao cliente na página de rastreamento
+- Registro automático no audit log para auditoria
+
+### 📱 Experiência do Cliente
+
+- **Pedido aceito**: Mensagem de confirmação com "Estamos iniciando a preparação"
+- **Pedido recusado**: Motivo da recusa exibido claramente
+- **Pedido entregue**: Botão "Avaliar este pedido" para deixar feedback
+- Atualizações em tempo real via Supabase Realtime
+- Interface responsiva para desktop, tablet e smartphone
+
+---
+
+## ⭐ Sistema de Avaliações e Feedbacks
+
+Sistema completo de avaliações onde os clientes podem avaliar seus pedidos após a entrega, com painel administrativo para moderação.
+
+### 📝 Como Funciona
+
+1. **Cliente avalia**: Após o pedido ser entregue, o cliente pode acessar `/avaliacoes` e deixar sua avaliação
+2. **Nota de 1 a 5 estrelas**: Sistema de classificação visual com estrelas
+3. **Comentário opcional**: Cliente pode deixar um comentário sobre a experiência
+4. **Moderação admin**: Avaliações precisam ser aprovadas pelo administrador para serem exibidas publicamente
+5. **Resposta da loja**: Administrador pode responder às avaliações
+
+### 📊 Página Pública de Avaliações
+
+- **Estatísticas gerais**: Média de avaliação, total de avaliações, distribuição por estrelas
+- **Filtros**: Filtrar avaliações por quantidade de estrelas (1 a 5)
+- **Formulário de avaliação**: Disponível para clientes com pedido entregue
+- **Respostas da loja**: Exibidas junto com cada avaliação
+- **Design responsivo**: Funciona em desktop, tablet e smartphone
+
+### 🛡️ Painel Administrativo
+
+- **Total de avaliações**: Contagem geral e aprovadas
+- **Média de satisfação**: Média geral com estrelas
+- **Lista completa**: Todas as avaliações (aprovadas e pendentes)
+- **Aprovar/Ocultar**: Controle de quais avaliações são exibidas publicamente
+- **Responder**: Responder a cada avaliação
+- **Filtros avançados**: Filtrar por nota e status de aprovação
+
+### 🗄️ Banco de Dados
+
+**Tabelas:**
+- `feedback_clientes`: Armazena as avaliações dos clientes
+- `respostas_feedback`: Armazena as respostas da loja
+
+**Funções RPC:**
+- `criar_feedback()` - Cria uma nova avaliação
+- `modificar_feedback_aprovacao()` - Aprova ou oculta uma avaliação
+- `responder_feedback()` - Responde a uma avaliação
+- `listar_feedbacks_aprovados()` - Lista avaliações públicas
+- `listar_todos_feedbacks()` - Lista todas as avaliações (admin)
+- `estatisticas_feedback()` - Retorna estatísticas gerais
+
+### 🔒 Segurança
+
+- **RLS (Row Level Security)**: Apenas clientes podem criar avaliações
+- **Moderação**: Avaliações precisam ser aprovadas para serem exibidas
+- **Autenticação**: Apenas staff pode aprovar/ocultar e responder avaliações
+- **Validação**: Apenas pedidos entregues podem ser avaliados
+- **Anti-spam**: Um pedido só pode ser avaliado uma vez
+
 ---
 
 ## 📁 Modelo de dados
@@ -577,6 +649,8 @@ Tabelas e funções utilizadas pelo código da aplicação (Supabase/Postgres):
 | `pedidos_online` | Pedidos da Loja Online: `cliente`, `telefone`, `endereco`, `itens`, `status`, `status_pagamento`, `expires_at`, `venda_id` |
 | `pagamentos_online` | Auditoria de pagamentos: `pedido_id`, `transaction_id`, `status`, `metodo`, `valor` |
 | `pedidos_online_audit` | Logs de auditoria: `pedido_id`, `acao`, `detalhes`, `usuario_id`, `created_at` |
+| `feedback_clientes` | Avaliações dos clientes: `pedido_id`, `cliente_nome`, `nota`, `comentario`, `aprovado` |
+| `respostas_feedback` | Respostas da loja: `feedback_id`, `resposta`, `respondido_por` |
 | `motoboys` | `nome`, `telefone`, `ativo` |
 | `cupons` | `codigo`, `percentual`, `ativo` |
 | `loja_config` | Linha única (`id = 1`): `abre`, `fecha`, `taxa_entrega`, `som_alerta` |
@@ -591,6 +665,14 @@ Tabelas e funções utilizadas pelo código da aplicação (Supabase/Postgres):
 - `listar_pedidos_delivery()` - Lista pedidos com status de novo/expirado para delivery
 - `limpar_pedidos_expirados()` - Limpa pedidos expirados automaticamente
 - `registrar_audit_pedido(_pedido_id, _acao, _detalhes, _usuario_id)` - Registra ações no audit log
+- `aceitar_pedido(_pedido_id)` - Aceita o pedido no delivery
+- `recusar_pedido(_pedido_id, _motivo)` - Recusa o pedido com motivo
+- `criar_feedback(_pedido_id, _cliente_nome, _nota, _comentario)` - Cria avaliação do cliente
+- `modificar_feedback_aprovacao(_feedback_id, _aprovado)` - Aprova ou oculta avaliação
+- `responder_feedback(_feedback_id, _resposta)` - Responde a uma avaliação
+- `listar_feedbacks_aprovados()` - Lista avaliações públicas
+- `listar_todos_feedbacks()` - Lista todas as avaliações (admin)
+- `estatisticas_feedback()` - Retorna estatísticas gerais
 
 **Status de pedido:** `novo` → `preparo` → `saiu` → `entregue` (ou `cancelado`).
 **Status de pagamento:** `aguardando` → `pago` → `expirado`.
@@ -772,7 +854,7 @@ O build é feito pelo Nitro, e o alvo padrão definido pela configuração da Lo
 - Pagamento PIX (QR Code EMV)
 - PIX Dinâmico via Enviare (opcional)
 - Confirmação automática de pagamento
-- Timer de expiração de pagamento (15 min)
+- Timer de expiração de pagamento (5 min)
 - Rastreamento de pedidos online
 - Sincronização Loja Online → PDV
 - Delivery Online
@@ -783,6 +865,9 @@ O build é feito pelo Nitro, e o alvo padrão definido pela configuração da Lo
 - Impressão 80mm
 - Inteligência de Compras
 - Taxas fiscais no cupom
+- Aceite e recusa de pedidos com motivo
+- Sistema de avaliações e feedbacks
+- Painel admin de moderação de avaliações
 
 ### 🚧 Em Desenvolvimento
 

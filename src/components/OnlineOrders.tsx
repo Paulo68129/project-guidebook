@@ -4,11 +4,14 @@ import { brl } from "@/lib/data";
 import type { OnlineOrder } from "@/lib/online-order";
 import { OrderReceipt } from "./OrderReceipt";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Clock, AlertTriangle, XCircle, RefreshCw, Bell, BellOff, BadgePlus, Volume2, VolumeX } from "lucide-react";
+import { Clock, AlertTriangle, XCircle, RefreshCw, Bell, BellOff, BadgePlus, Volume2, VolumeX, CheckCircle, XOctagon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useNewOrderSound } from "@/hooks/useNewOrderSound";
 import { useOnlineOrdersRealtime } from "@/hooks/useOnlineOrdersRealtime";
+import { aceitarPedido, recusarPedido } from "@/lib/online-order-api";
 
 // Tempo limite para pagamento em segundos (5 minutos)
 const PAYMENT_TIMEOUT_SECONDS = 5 * 60;
@@ -93,6 +96,11 @@ export function OnlineOrders() {
   const { playNewOrderSound, isSoundEnabled, toggleSound } = useNewOrderSound();
   const soundEnabled = isSoundEnabled();
   const notifiedOrdersRef = useRef<Set<string>>(new Set());
+  
+  // Estado para diálogo de recusa
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectOrderId, setRejectOrderId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const q = useQuery({
     queryKey: ["pedidos-online"],
@@ -199,6 +207,43 @@ export function OnlineOrders() {
       await qc.invalidateQueries({ queryKey: ["pedidos-online"] });
     } catch {
       // Silencioso - o pedido será filtrado do painel
+    }
+  }
+
+  // Aceitar pedido
+  async function handleAceitarPedido(order: OnlineOrder & { token?: string }) {
+    try {
+      await aceitarPedido(order.id);
+      toast.success(`Pedido de ${order.cliente} aceito!`);
+      await qc.invalidateQueries({ queryKey: ["pedidos-online"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível aceitar o pedido");
+    }
+  }
+
+  // Abrir diálogo de recusa
+  function openRejectDialog(orderId: string) {
+    setRejectOrderId(orderId);
+    setRejectReason("");
+    setRejectDialogOpen(true);
+  }
+
+  // Recusar pedido
+  async function handleRecusarPedido() {
+    if (!rejectOrderId) return;
+    if (!rejectReason.trim()) {
+      toast.error("Informe o motivo da recusa");
+      return;
+    }
+    try {
+      await recusarPedido(rejectOrderId, rejectReason.trim());
+      toast.info("Pedido recusado");
+      setRejectDialogOpen(false);
+      setRejectOrderId(null);
+      setRejectReason("");
+      await qc.invalidateQueries({ queryKey: ["pedidos-online"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível recusar o pedido");
     }
   }
 
@@ -323,7 +368,42 @@ export function OnlineOrders() {
 
               <p className="my-2 text-sm text-warning">Não pago · Não iniciar preparo</p>
 
+              {/* Status do delivery */}
+              {p.status_delivery === 'aceito' && (
+                <div className="mb-2 flex items-center gap-2 text-sm text-green-600">
+                  <CheckCircle className="h-4 w-4" />
+                  <span>Pedido aceito</span>
+                </div>
+              )}
+              {p.status_delivery === 'recusado' && (
+                <div className="mb-2 flex items-center gap-2 text-sm text-red-600">
+                  <XOctagon className="h-4 w-4" />
+                  <span>Pedido recusado: {p.motivo_recusa || 'Sem motivo'}</span>
+                </div>
+              )}
+
               <div className="flex gap-2">
+                {p.status_delivery === 'pendente' && (
+                  <>
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => handleAceitarPedido(p as OnlineOrder & { token?: string })}
+                    >
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Aceitar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                      onClick={() => openRejectDialog(p.id)}
+                    >
+                      <XOctagon className="h-4 w-4 mr-1" />
+                      Recusar
+                    </Button>
+                  </>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -331,7 +411,7 @@ export function OnlineOrders() {
                   onClick={() => handleExpirarPedido(p as OnlineOrder & { token?: string })}
                 >
                   <XCircle className="h-4 w-4 mr-1" />
-                  Cancelar pedido
+                  Cancelar
                 </Button>
               </div>
 
@@ -345,6 +425,42 @@ export function OnlineOrders() {
           );
         })}
       </div>
+
+      {/* Diálogo de recusa */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Recusar pedido</DialogTitle>
+            <DialogDescription>
+              Informe o motivo da recusa. Este motivo será enviado ao cliente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Motivo da recusa</label>
+              <Input
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Ex: Produto indisponível, fora da área de entrega, etc."
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRecusarPedido}
+              disabled={!rejectReason.trim()}
+            >
+              <XOctagon className="h-4 w-4 mr-1" />
+              Recusar pedido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

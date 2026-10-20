@@ -65,6 +65,16 @@ export type OnlineOrder = {
   token?: string;
   /** `undefined` quando a coluna ainda não existe no banco (migração 0002 pendente). */
   motoboy_id?: string | null;
+  /** Status do pedido no delivery: pendente, aceito, recusado */
+  status_delivery?: string | null;
+  /** Motivo da recusa do pedido */
+  motivo_recusa?: string | null;
+  /** Horário de aceite do pedido */
+  aceito_em?: string | null;
+  /** Horário de recusa do pedido */
+  recusado_em?: string | null;
+  /** Horário de entrega do pedido */
+  entregue_em?: string | null;
 };
 
 export type PublicProduct = { id: string; nome: string; categoria: string; descricao: string | null; preco: number; imagem_path: string | null; imagem: string | null };

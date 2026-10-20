@@ -89,3 +89,63 @@ export async function expirarPedidoOnline(token: string): Promise<void> {
     console.warn("[loja] Erro ao expirar pedido:", errorMessage(e));
   }
 }
+
+/** Aceita o pedido no delivery. Chama a função RPC para atualizar o status. */
+export async function aceitarPedido(pedidoId: string): Promise<void> {
+  if (!isUuid(pedidoId)) return;
+  
+  try {
+    const { error } = await (supabase as any).rpc("aceitar_pedido", { _pedido_id: pedidoId });
+    if (error) {
+      console.warn("[delivery] Não foi possível aceitar o pedido:", error.message);
+      throw new Error(error.message);
+    }
+  } catch (e) {
+    console.warn("[delivery] Erro ao aceitar pedido:", errorMessage(e));
+    throw e;
+  }
+}
+
+/** Recusa o pedido no delivery com um motivo. Chama a função RPC para atualizar o status. */
+export async function recusarPedido(pedidoId: string, motivo: string): Promise<void> {
+  if (!isUuid(pedidoId)) return;
+  
+  try {
+    const { error } = await (supabase as any).rpc("recusar_pedido", { _pedido_id: pedidoId, _motivo: motivo });
+    if (error) {
+      console.warn("[delivery] Não foi possível recusar o pedido:", error.message);
+      throw new Error(error.message);
+    }
+  } catch (e) {
+    console.warn("[delivery] Erro ao recusar pedido:", errorMessage(e));
+    throw e;
+  }
+}
+
+/** Cria um feedback para um pedido entregue. */
+export async function criarFeedback(
+  pedidoId: string,
+  clienteNome: string,
+  nota: number,
+  comentario?: string
+): Promise<void> {
+  if (!isUuid(pedidoId)) return;
+  if (nota < 1 || nota > 5) throw new Error("Nota deve ser entre 1 e 5");
+  
+  try {
+    const { error } = await (supabase as any).rpc("criar_feedback", {
+      _pedido_id: pedidoId,
+      _cliente_nome: clienteNome,
+      _cliente_email: null,
+      _nota: nota,
+      _comentario: comentario || null,
+    });
+    if (error) {
+      console.warn("[feedback] Não foi possível criar o feedback:", error.message);
+      throw new Error(error.message);
+    }
+  } catch (e) {
+    console.warn("[feedback] Erro ao criar feedback:", errorMessage(e));
+    throw e;
+  }
+}

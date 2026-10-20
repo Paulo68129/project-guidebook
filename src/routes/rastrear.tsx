@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { consultarPedidoOnline } from "@/lib/loja-online.functions";
 import { brl } from "@/lib/data";
 import { expirarPedidoOnline } from "@/lib/online-order-api";
-import { ArrowLeft, Clock, CheckCircle, ChefHat, Truck, Package, Search, Loader2, MapPin, User, FileText, Printer, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Clock, CheckCircle, ChefHat, Truck, Package, Search, Loader2, MapPin, User, FileText, Printer, AlertTriangle, XOctagon, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -37,6 +37,8 @@ interface PedidoOnline {
   cupom?: string;
   status: string;
   status_pagamento?: string;
+  status_delivery?: string;
+  motivo_recusa?: string;
   created_at: string;
   updated_at?: string;
 }
@@ -319,8 +321,36 @@ function RastrearPage() {
               </div>
             )}
 
-            {/* Status atual - só mostra se não expirou */}
-            {!(pedido.status === "cancelado" && pedido.status_pagamento === "expirado") && (
+            {/* Pedido recusado - mostra mensagem especial */}
+            {pedido.status_delivery === "recusado" && (
+              <div className="mb-6 rounded-xl border-2 border-orange-200 bg-orange-50 p-6 text-center">
+                <XOctagon className="mx-auto h-12 w-12 text-orange-500" />
+                <h2 className="mt-3 text-lg font-bold text-orange-700">Pedido recusado</h2>
+                <p className="mt-2 text-sm text-orange-600">
+                  {pedido.motivo_recusa || "Infelizmente não foi possível atender seu pedido neste momento."}
+                </p>
+                <p className="mt-1 text-xs text-orange-500">
+                  Código do pedido: {pedido.id.replace(/-/g, "").slice(0, 8).toUpperCase()}
+                </p>
+                <Button className="mt-4" onClick={() => window.location.href = "/loja"}>
+                  Fazer novo pedido
+                </Button>
+              </div>
+            )}
+
+            {/* Pedido aceito e confirmado */}
+            {pedido.status_delivery === "aceito" && pedido.status !== "cancelado" && (
+              <div className="mb-6 rounded-xl border-2 border-green-200 bg-green-50 p-6 text-center">
+                <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
+                <h2 className="mt-3 text-lg font-bold text-green-700">Pedido confirmado!</h2>
+                <p className="mt-2 text-sm text-green-600">
+                  Seu pedido foi confirmado e o pagamento foi aprovado. Estamos iniciando a preparação.
+                </p>
+              </div>
+            )}
+
+            {/* Status atual - só mostra se não expirou e não foi recusado */}
+            {!(pedido.status === "cancelado" && pedido.status_pagamento === "expirado") && pedido.status_delivery !== "recusado" && (
             <>
             <div className="mb-6 rounded-xl border bg-white p-6 shadow-sm">
               <div className="flex items-center gap-4">
@@ -477,6 +507,17 @@ function RastrearPage() {
             >
               <Printer className="mr-2 h-4 w-4" /> Ver / Imprimir Cupom do Pedido
             </Button>
+
+            {/* Botão de avaliação - só mostra se pedido foi entregue */}
+            {pedido.status === "entregue" && (
+              <Button
+                className="w-full mb-3 bg-yellow-500 text-white hover:bg-yellow-600 font-semibold"
+                size="lg"
+                onClick={() => window.location.href = `/avaliacoes?token=${pedido.id}`}
+              >
+                <Star className="mr-2 h-4 w-4" /> Avaliar este pedido
+              </Button>
+            )}
             </>
             )}
           </>

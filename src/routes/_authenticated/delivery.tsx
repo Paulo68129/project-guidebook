@@ -6,11 +6,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { brl, motoboysQ, vendasQ, type Venda } from "@/lib/data";
 import { PageHeader, RouteError } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { NFCEPrint } from "@/components/NFCEPrint";
 import { OnlineOrderNFCE } from "@/components/OnlineOrderNFCE";
 import type { OnlineOrder } from "@/lib/online-order";
 import { useNewOrderSound } from "@/hooks/useNewOrderSound";
 import { useOnlineOrdersRealtime } from "@/hooks/useOnlineOrdersRealtime";
+import { aceitarPedido, recusarPedido } from "@/lib/online-order-api";
+import { CheckCircle, XOctagon } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/delivery")({
   head: () => ({ meta: [{ title: "Delivery — PizzaStockAI" }, { name: "description", content: "Acompanhe pedidos de delivery do preparo à entrega." }, { property: "og:title", content: "Delivery — PizzaStockAI" }, { property: "og:description", content: "Quadro de pedidos de delivery." }] }),
@@ -47,6 +51,12 @@ function Delivery() {
   
   // Hook de alerta sonoro para novos pedidos
   const { playNewOrderSound } = useNewOrderSound();
+  
+  // Estado para diálogo de recusa
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectOrderId, setRejectOrderId] = useState<string | null>(null);
+  const [rejectOrderTipo, setRejectOrderTipo] = useState<"venda" | "online" | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   // Busca pedidos online com auto-refresh
   const { data: pedidosOnline } = useQuery({
@@ -213,6 +223,51 @@ function Delivery() {
     }
   }
 
+  // Aceitar pedido online
+  async function handleAceitarPedido(id: string) {
+    try {
+      await aceitarPedido(id);
+      toast.success("Pedido aceito! Iniciando preparo.");
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível aceitar o pedido");
+    }
+  }
+
+  // Abrir diálogo de recusa
+  function openRejectDialog(id: string, tipo: "venda" | "online") {
+    setRejectOrderId(id);
+    setRejectOrderTipo(tipo);
+    setRejectReason("");
+    setRejectDialogOpen(true);
+  }
+
+  // Recusar pedido
+  async function handleRecusarPedido() {
+    if (!rejectOrderId || !rejectOrderTipo) return;
+    if (!rejectReason.trim()) {
+      toast.error("Informe o motivo da recusa");
+      return;
+    }
+    try {
+      if (rejectOrderTipo === "online") {
+        await recusarPedido(rejectOrderId, rejectReason.trim());
+      } else {
+        // Para vendas, apenas atualiza o status para cancelado
+        await updateVenda(rejectOrderId, { status: "cancelado" });
+      }
+      toast.info("Pedido recusado");
+      setRejectDialogOpen(false);
+      setRejectOrderId(null);
+      setRejectOrderTipo(null);
+      setRejectReason("");
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+      await qc.invalidateQueries({ queryKey: ["vendas"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível recusar o pedido");
+    }
+  }
+
   return (
     <div>
       <PageHeader title="Delivery" sub="Pedidos das últimas 48h — atualiza sozinho" />
@@ -246,7 +301,34 @@ function Delivery() {
                         {motoboys.filter((m) => m.ativo).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
                       </select>
                     )}
-                    {c.next && (
+                    {c.s === "novo" && p.tipo === "online" && (
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                          onClick={() => handleAceitarPedido(p.id)}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Aceitar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                          onClick={() => openRejectDialog(p.id, p.tipo)}
+                        >
+                          <XOctagon className="h-4 w-4 mr-1" />
+                          Recusar
+                        </Button>
+                      </div>
+                    )}
+                    {c.next && c.s !== "novo" && (
+                      <div className="mt-2 flex gap-2">
+                        <Button size="sm" className="flex-1" onClick={() => update(p.id, p.tipo, { status: c.next! })}>{c.btn}</Button>
+                        <Button size="sm" variant="ghost" onClick={() => update(p.id, p.tipo, { status: "cancelado" })}>Cancelar</Button>
+                      </div>
+                    )}
+                    {c.next && c.s === "novo" && p.tipo === "venda" && (
                       <div className="mt-2 flex gap-2">
                         <Button size="sm" className="flex-1" onClick={() => update(p.id, p.tipo, { status: c.next! })}>{c.btn}</Button>
                         <Button size="sm" variant="ghost" onClick={() => update(p.id, p.tipo, { status: "cancelado" })}>Cancelar</Button>
@@ -279,6 +361,42 @@ function Delivery() {
           }}
         />
       )}
+
+      {/* Diálogo de recusa */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Recusar pedido</DialogTitle>
+            <DialogDescription>
+              Informe o motivo da recusa. Este motivo será enviado ao cliente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Motivo da recusa</label>
+              <Input
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Ex: Produto indisponível, fora da área de entrega, etc."
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRecusarPedido}
+              disabled={!rejectReason.trim()}
+            >
+              <XOctagon className="h-4 w-4 mr-1" />
+              Recusar pedido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

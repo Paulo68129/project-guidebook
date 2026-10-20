@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AvaliacoesRouteImport } from './routes/avaliacoes'
 import { Route as LojaRouteImport } from './routes/loja'
 import { Route as RastrearRouteImport } from './routes/rastrear'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
@@ -39,6 +40,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AvaliacoesRoute = AvaliacoesRouteImport.update({
+  id: '/avaliacoes',
+  path: '/avaliacoes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LojaRoute = LojaRouteImport.update({
@@ -115,6 +121,7 @@ const PagamentoVendaIdRoute = PagamentoVendaIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/avaliacoes': typeof AvaliacoesRoute
   '/loja': typeof LojaRoute
   '/rastrear': typeof RastrearRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -133,6 +140,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/avaliacoes': typeof AvaliacoesRoute
   '/loja': typeof LojaRoute
   '/rastrear': typeof RastrearRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/avaliacoes': typeof AvaliacoesRoute
   '/loja': typeof LojaRoute
   '/rastrear': typeof RastrearRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -173,6 +182,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/avaliacoes'
     | '/loja'
     | '/rastrear'
     | '/reset-password'
@@ -191,6 +201,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/avaliacoes'
     | '/loja'
     | '/rastrear'
     | '/reset-password'
@@ -210,6 +221,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/avaliacoes'
     | '/loja'
     | '/rastrear'
     | '/reset-password'
@@ -230,6 +242,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  AvaliacoesRoute: typeof AvaliacoesRoute
   LojaRoute: typeof LojaRoute
   RastrearRoute: typeof RastrearRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
@@ -257,6 +270,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/avaliacoes': {
+      id: '/avaliacoes'
+      path: '/avaliacoes'
+      fullPath: '/avaliacoes'
+      preLoaderRoute: typeof AvaliacoesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/loja': {
@@ -393,6 +413,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  AvaliacoesRoute: AvaliacoesRoute,
   LojaRoute: LojaRoute,
   RastrearRoute: RastrearRoute,
   ResetPasswordRoute: ResetPasswordRoute,
