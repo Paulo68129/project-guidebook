@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { brl, motoboysQ, vendasQ, type Venda } from "@/lib/data";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { NFCEPrint } from "@/components/NFCEPrint";
 import { OnlineOrderNFCE } from "@/components/OnlineOrderNFCE";
 import type { OnlineOrder } from "@/lib/online-order";
+import { useNewOrderSound } from "@/hooks/useNewOrderSound";
+import { useOnlineOrdersRealtime } from "@/hooks/useOnlineOrdersRealtime";
 
 export const Route = createFileRoute("/_authenticated/delivery")({
   head: () => ({ meta: [{ title: "Delivery — PizzaStockAI" }, { name: "description", content: "Acompanhe pedidos de delivery do preparo à entrega." }, { property: "og:title", content: "Delivery — PizzaStockAI" }, { property: "og:description", content: "Quadro de pedidos de delivery." }] }),
@@ -42,6 +44,9 @@ function Delivery() {
   const pedidosVendas = vendas.filter((v) => v.tipo === "delivery");
   const [nfceVenda, setNfceVenda] = useState<Venda | null>(null);
   const [nfceOnline, setNfceOnline] = useState<OnlineOrder | null>(null);
+  
+  // Hook de alerta sonoro para novos pedidos
+  const { playNewOrderSound } = useNewOrderSound();
 
   // Busca pedidos online com auto-refresh
   const { data: pedidosOnline } = useQuery({
@@ -58,6 +63,52 @@ function Delivery() {
       return data as unknown as OnlineOrder[];
     },
   });
+
+  // Realtime - detecta novos pedidos instantaneamente
+  useOnlineOrdersRealtime({
+    onNewOrder: useCallback((order: any) => {
+      console.log("[Delivery] Novo pedido detectado via Realtime:", order.id);
+      
+      // Toca o som de campainha
+      playNewOrderSound(order.id);
+      
+      // Mostra notificação visual
+      toast.success(`🔔 Novo pedido de ${order.cliente}!`, {
+        duration: 5000,
+      });
+      
+      // Invalida o cache para atualizar a lista
+      qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+    }, [playNewOrderSound, qc]),
+    
+    onOrderStatusChange: useCallback((order: any) => {
+      console.log("[Delivery] Status do pedido alterado:", order.id, "→", order.status);
+      qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+    }, [qc]),
+    
+    onOrderExpired: useCallback((order: any) => {
+      console.log("[Delivery] Pedido expirado:", order.id);
+      toast.info(`Pedido de ${order.cliente} expirado automaticamente.`);
+      qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+    }, [qc]),
+  });
+
+  // Limpeza automática de pedidos expirados a cada 30 segundos
+  useEffect(() => {
+    const limparPedidosExpirados = async () => {
+      try {
+        await (supabase as any).rpc("limpar_pedidos_expirados");
+      } catch (e) {
+        console.warn("[Delivery] Erro ao limpar pedidos expirados:", e);
+      }
+    };
+    
+    // Executa imediatamente ao montar
+    limparPedidosExpirados();
+    
+    const interval = setInterval(limparPedidosExpirados, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Combina pedidos de vendas e pedidos online em uma lista unificada por coluna
   function getPedidosByColumn(status: string) {

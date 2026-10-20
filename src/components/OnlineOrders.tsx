@@ -3,13 +3,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { brl } from "@/lib/data";
 import type { OnlineOrder } from "@/lib/online-order";
 import { OrderReceipt } from "./OrderReceipt";
-import { useState, useEffect } from "react";
-import { Clock, AlertTriangle, XCircle, RefreshCw } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Clock, AlertTriangle, XCircle, RefreshCw, Bell, BellOff, BadgePlus, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useNewOrderSound } from "@/hooks/useNewOrderSound";
+import { useOnlineOrdersRealtime } from "@/hooks/useOnlineOrdersRealtime";
 
 // Tempo limite para pagamento em segundos (5 minutos)
 const PAYMENT_TIMEOUT_SECONDS = 5 * 60;
+// Tempo para considerar um pedido como "novo" (3 minutos)
+const NEW_ORDER_THRESHOLD_MS = 3 * 60 * 1000;
 
 function formatTime(seconds: number): string {
   if (seconds <= 0) return "00:00";
@@ -22,6 +26,11 @@ function getRemainingSeconds(order: OnlineOrder): number {
   const expiresAt = order.expires_at ? new Date(order.expires_at).getTime() : new Date(order.created_at).getTime() + PAYMENT_TIMEOUT_SECONDS * 1000;
   const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
   return remaining;
+}
+
+function isNewOrder(order: OnlineOrder): boolean {
+  const createdAt = new Date(order.created_at).getTime();
+  return (Date.now() - createdAt) < NEW_ORDER_THRESHOLD_MS;
 }
 
 function PaymentTimer({ order, onExpired }: { order: OnlineOrder; onExpired: () => void }) {
@@ -65,8 +74,25 @@ async function expirarPedido(token: string) {
   if (error) throw error;
 }
 
+// Função para limpar pedidos expirados via RPC
+async function limparPedidosExpirados() {
+  try {
+    const { data, error } = await (supabase as any).rpc("limpar_pedidos_expirados");
+    if (error) {
+      console.warn("[OnlineOrders] Erro ao limpar pedidos expirados:", error.message);
+    } else if (data?.expirados > 0) {
+      console.log(`[OnlineOrders] ${data.expirados} pedido(s) expirado(s) e removido(s)`);
+    }
+  } catch (e) {
+    console.warn("[OnlineOrders] Erro ao limpar pedidos expirados:", e);
+  }
+}
+
 export function OnlineOrders() {
   const qc = useQueryClient();
+  const { playNewOrderSound, isSoundEnabled, toggleSound } = useNewOrderSound();
+  const soundEnabled = isSoundEnabled();
+  const notifiedOrdersRef = useRef<Set<string>>(new Set());
 
   const q = useQuery({
     queryKey: ["pedidos-online"],
@@ -93,6 +119,53 @@ export function OnlineOrders() {
       });
     },
   });
+
+  // Realtime - detecta novos pedidos instantaneamente
+  useOnlineOrdersRealtime({
+    onNewOrder: useCallback((order: any) => {
+      const orderId = order.id;
+      console.log("[OnlineOrders] Novo pedido detectado via Realtime:", orderId);
+      
+      // Toca o som de campainha
+      playNewOrderSound(orderId);
+      
+      // Mostra notificação visual
+      toast.success(`🔔 Novo pedido de ${order.cliente}!`, {
+        duration: 5000,
+      });
+      
+      // Invalida o cache para atualizar a lista
+      qc.invalidateQueries({ queryKey: ["pedidos-online"] });
+    }, [playNewOrderSound, qc]),
+    
+    onOrderStatusChange: useCallback((order: any) => {
+      console.log("[OnlineOrders] Status do pedido alterado:", order.id, "→", order.status);
+      qc.invalidateQueries({ queryKey: ["pedidos-online"] });
+    }, [qc]),
+    
+    onOrderExpired: useCallback((order: any) => {
+      console.log("[OnlineOrders] Pedido expirado:", order.id);
+      toast.info(`Pedido de ${order.cliente} expirado automaticamente.`);
+      qc.invalidateQueries({ queryKey: ["pedidos-online"] });
+    }, [qc]),
+    
+    onOrderDeleted: useCallback((order: any) => {
+      console.log("[OnlineOrders] Pedido removido:", order.id);
+      qc.invalidateQueries({ queryKey: ["pedidos-online"] });
+    }, [qc]),
+  });
+
+  // Limpeza automática de pedidos expirados a cada 30 segundos
+  useEffect(() => {
+    const interval = setInterval(() => {
+      limparPedidosExpirados();
+    }, 30000);
+    
+    // Executa imediatamente ao montar
+    limparPedidosExpirados();
+    
+    return () => clearInterval(interval);
+  }, []);
 
   // Filtra pedidos expirados do painel
   const pedidosAtivos = (q.data || []).filter((p) => {
@@ -132,15 +205,38 @@ export function OnlineOrders() {
   return (
     <section className="mb-8 border-b pb-6">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="font-display text-xl">Pedidos online · Aguardando pagamento</h2>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => qc.invalidateQueries({ queryKey: ["pedidos-online"] })}
-          disabled={q.isFetching}
-        >
-          <RefreshCw className={`h-4 w-4 ${q.isFetching ? "animate-spin" : ""}`} />
-        </Button>
+        <div className="flex items-center gap-3">
+          <h2 className="font-display text-xl">Pedidos online · Aguardando pagamento</h2>
+          {pedidosAtivos.some(p => isNewOrder(p)) && (
+            <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-700 animate-pulse">
+              <BadgePlus className="h-3 w-3" />
+              Novo!
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Botão de toggle do som */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => toggleSound()}
+            title={soundEnabled ? "Desativar som de alerta" : "Ativar som de alerta"}
+          >
+            {soundEnabled ? (
+              <Volume2 className="h-4 w-4 text-green-600" />
+            ) : (
+              <VolumeX className="h-4 w-4 text-muted-foreground" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => qc.invalidateQueries({ queryKey: ["pedidos-online"] })}
+            disabled={q.isFetching}
+          >
+            <RefreshCw className={`h-4 w-4 ${q.isFetching ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {q.isPending && <p className="text-muted-foreground">Carregando pedidos…</p>}
@@ -190,11 +286,31 @@ export function OnlineOrders() {
         {pedidosAtivos.map((p) => {
           const remaining = getRemainingSeconds(p);
           const isUrgent = remaining < 60 && remaining > 0;
+          const isNew = isNewOrder(p);
           return (
             <article
               key={p.id}
-              className={`rounded-lg border bg-card p-4 ${isUrgent ? "border-orange-300 shadow-orange-100 shadow-md" : ""}`}
+              className={`rounded-lg border bg-card p-4 transition-all duration-300 ${
+                isNew 
+                  ? "border-green-400 bg-green-50 shadow-lg shadow-green-100 animate-pulse" 
+                  : isUrgent 
+                    ? "border-orange-300 shadow-orange-100 shadow-md" 
+                    : ""
+              }`}
             >
+              {/* Selo de novo pedido */}
+              {isNew && (
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-green-500 px-2 py-1 text-xs font-bold text-white">
+                    <BadgePlus className="h-3 w-3" />
+                    NOVO PEDIDO
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(p.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </span>
+                </div>
+              )}
+
               <div className="flex flex-wrap justify-between gap-2 font-semibold">
                 <span>{p.cliente}</span>
                 <span>{brl(Number(p.total))}</span>

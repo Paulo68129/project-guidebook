@@ -49,6 +49,7 @@ Uma plataforma completa para gerenciamento de pizzarias, integrando estoque, pro
 - [✨ Funcionalidades](#funcionalidades)
 - [💳 Pagamento PIX](#pagamento-pix)
 - [🔍 Rastreamento de Pedidos](#rastreamento-de-pedidos)
+- [🔔 Integração Loja Online → Delivery](#integração-loja-online--delivery)
 - [📊 Métricas do Projeto](#métricas-do-projeto)
 - [🤝 Casos de Uso](#casos-de-uso)
 - [⭐ Diferenciais Competitivos](#diferenciais-competitivos)
@@ -460,6 +461,7 @@ Os clientes podem rastrear seus pedidos em tempo real através da página `/rast
 - Exibição de informações do cliente, endereço e itens
 - Cupom fiscal/impressão do pedido
 - Notificações de status em tempo real
+- **Expiração automática**: Pedidos não pagos são removidos após 5 minutos
 
 **Fluxo de Status:**
 ```
@@ -470,6 +472,94 @@ Aguardando Pagamento → Pago → Em Preparação → Saiu para Entrega → Entr
 - Supabase Realtime para atualizações instantâneas
 - Polling de fallback a cada 10 segundos
 - Integração com sistema de pagamentos PIX
+- Timer de expiração de 5 minutos com limpeza automática
+
+---
+
+## 🔔 Integração Loja Online → Delivery
+
+Sistema completo de integração entre a Loja Online e o módulo Delivery, garantindo que pedidos cheguem instantaneamente aos atendentes com notificações visuais e sonoras.
+
+### 📋 Recebimento Automático de Pedidos
+
+- Quando um cliente finaliza uma compra na Loja Online, o pedido é enviado automaticamente para o módulo Delivery
+- O pedido aparece em tempo real para os atendentes sem necessidade de atualização manual
+- Notificação visual destacada informa a chegada de um novo pedido
+- Sincronização instantânea via **Supabase Realtime**
+
+### 🔊 Alerta Sonoro
+
+- Ao receber um novo pedido, reproduz automaticamente um som de campainha
+- O som toca mesmo que o operador esteja em outra aba do sistema
+- O alerta é executado apenas uma vez por pedido para evitar repetições
+- Opção nas configurações para ativar ou desativar o som
+- Implementado via **Web Audio API** para máxima compatibilidade
+
+### 🆔 Identificação Visual de Novos Pedidos
+
+- Pedidos recém-chegados são destacados com cor verde diferenciada
+- Selo "NOVO PEDIDO" exibido durante os primeiros 3 minutos
+- Horário exato de entrada do pedido visível no card
+- Animação de pulso para chamar atenção dos atendentes
+- Badge "Novo!" no cabeçalho do painel quando há pedidos recentes
+
+### ⏱️ Expiração Automática (5 minutos)
+
+- Caso o pedido permaneça sem confirmação por **5 minutos**:
+  - Status alterado automaticamente para "Expirado"
+  - Remoção de todos os dados temporários do rastreamento
+  - Limpeza de informações de acompanhamento em tempo real
+  - Remoção de registros temporários do mapa e rastreio
+  - Encerramento de listeners e subscriptions relacionados
+
+### 🧹 Limpeza Automática de Dados
+
+- Após o status "Expirado":
+  - Exclusão de informações temporárias do pedido
+  - Exclusão de dados de rastreamento
+  - Exclusão de localização em tempo real
+  - Exclusão de eventos de notificação relacionados
+  - Apenas registros históricos de auditoria permanecem
+
+### 🔄 Sincronização em Tempo Real
+
+- **Supabase Realtime** para sincronização instantânea
+- Quando o pedido for aceito, rejeitado, cancelado ou expirado, todas as telas são atualizadas automaticamente
+- Atualização simultânea em:
+  - Loja Online
+  - Delivery
+  - PDV
+  - Painel Administrativo
+
+### 📊 Logs de Auditoria
+
+- Tabela `pedidos_online_audit` registra todas as ações:
+  - `recebido`: Quando um novo pedido chega
+  - `confirmado`: Quando o pagamento é confirmado
+  - `atualizado`: Quando o status muda
+  - `expirado`: Quando o pedido expira automaticamente
+  - `cancelado`: Quando o pedido é cancelado manualmente
+- Trigger automática registra mudanças no banco
+- Função RPC `limpar_pedidos_expirados()` executa limpeza a cada 30 segundos
+
+### 🛠️ Implementação Técnica
+
+**Arquivos Principais:**
+- `src/hooks/useNewOrderSound.ts` - Hook de alerta sonoro
+- `src/hooks/useOnlineOrdersRealtime.ts` - Hook de Realtime
+- `src/components/OnlineOrders.tsx` - Componente do PDV com Realtime
+- `src/routes/_authenticated/delivery.tsx` - Página de delivery com Realtime
+- `supabase/migrations/0005_delivery_integration.sql` - Migração SQL completa
+
+**Funções RPC:**
+- `limpar_pedidos_expirados()` - Limpa pedidos expirados automaticamente
+- `confirmar_pagamento_pedido(_token)` - Confirma pagamento e inicia delivery
+- `listar_pedidos_delivery()` - Lista pedidos com status de novo/expirado
+- `registrar_audit_pedido()` - Registra ações no audit log
+
+**Hooks Customizados:**
+- `useNewOrderSound()` - Gerencia alertas sonoros com Web Audio API
+- `useOnlineOrdersRealtime()` - Subscrição Realtime para mudanças instantâneas
 
 ---
 
@@ -486,6 +576,7 @@ Tabelas e funções utilizadas pelo código da aplicação (Supabase/Postgres):
 | `venda_itens` | Itens da venda: `produto_id`, `nome`, `quantidade` |
 | `pedidos_online` | Pedidos da Loja Online: `cliente`, `telefone`, `endereco`, `itens`, `status`, `status_pagamento`, `expires_at`, `venda_id` |
 | `pagamentos_online` | Auditoria de pagamentos: `pedido_id`, `transaction_id`, `status`, `metodo`, `valor` |
+| `pedidos_online_audit` | Logs de auditoria: `pedido_id`, `acao`, `detalhes`, `usuario_id`, `created_at` |
 | `motoboys` | `nome`, `telefone`, `ativo` |
 | `cupons` | `codigo`, `percentual`, `ativo` |
 | `loja_config` | Linha única (`id = 1`): `abre`, `fecha`, `taxa_entrega`, `som_alerta` |
@@ -493,9 +584,13 @@ Tabelas e funções utilizadas pelo código da aplicação (Supabase/Postgres):
 **Funções RPC:**
 - `registrar_venda(_itens, _tipo, _cliente?, _telefone?, _endereco?, _cupom?)` - Registra venda no PDV
 - `confirmar_pagamento_online(_pedido_id)` - Confirma pagamento e vincula pedido online ao PDV
+- `confirmar_pagamento_pedido(_token)` - Confirma pagamento e inicia delivery
 - `expirar_pedido_online(_token)` - Cancela pedido expirado
 - `verificar_expiracao_pedido(_token)` - Verifica se pedido expirou
 - `listar_pedidos_com_timer()` - Lista pedidos aguardando pagamento com tempo restante
+- `listar_pedidos_delivery()` - Lista pedidos com status de novo/expirado para delivery
+- `limpar_pedidos_expirados()` - Limpa pedidos expirados automaticamente
+- `registrar_audit_pedido(_pedido_id, _acao, _detalhes, _usuario_id)` - Registra ações no audit log
 
 **Status de pedido:** `novo` → `preparo` → `saiu` → `entregue` (ou `cancelado`).
 **Status de pagamento:** `aguardando` → `pago` → `expirado`.
