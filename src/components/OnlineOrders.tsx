@@ -8,8 +8,8 @@ import { Clock, AlertTriangle, XCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
-// Tempo limite para pagamento em segundos (15 minutos)
-const PAYMENT_TIMEOUT_SECONDS = 15 * 60;
+// Tempo limite para pagamento em segundos (5 minutos)
+const PAYMENT_TIMEOUT_SECONDS = 5 * 60;
 
 function formatTime(seconds: number): string {
   if (seconds <= 0) return "00:00";

@@ -3,12 +3,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { consultarPedidoOnline } from "@/lib/loja-online.functions";
 import { brl } from "@/lib/data";
-import { ArrowLeft, Clock, CheckCircle, ChefHat, Truck, Package, Search, Loader2, MapPin, User, FileText, Printer } from "lucide-react";
+import { expirarPedidoOnline } from "@/lib/online-order-api";
+import { ArrowLeft, Clock, CheckCircle, ChefHat, Truck, Package, Search, Loader2, MapPin, User, FileText, Printer, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { OnlineOrderNFCE } from "@/components/OnlineOrderNFCE";
 import { supabase } from "@/integrations/supabase/client";
+
+// Tempo limite para pagamento em minutos (5 minutos)
+const PAYMENT_TIMEOUT_MINUTES = 5;
 
 export const Route = createFileRoute("/rastrear")({
   head: () => ({
@@ -80,6 +84,14 @@ const statusConfig: Record<string, { label: string; icon: any; color: string; bg
 // Ordem dos status na timeline
 const statusOrder = ["aguardando_pagamento", "pago", "preparo", "saiu", "entregue"];
 
+// Verifica se o pedido expirou (mais de 5 minutos aguardando pagamento)
+function isPedidoExpirado(pedido: PedidoOnline): boolean {
+  if (pedido.status !== "aguardando_pagamento") return false;
+  const criadoEm = new Date(pedido.created_at).getTime();
+  const agora = Date.now();
+  return (agora - criadoEm) > PAYMENT_TIMEOUT_MINUTES * 60 * 1000;
+}
+
 function RastrearPage() {
   const [searchToken, setSearchToken] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -143,10 +155,21 @@ function RastrearPage() {
           normalizedItens = [];
         }
       }
-      setPedido({
+      const pedidoData = {
         ...data,
         itens: normalizedItens,
-      } as PedidoOnline);
+      } as PedidoOnline;
+
+      // Verifica se o pedido expirou e expira automaticamente
+      if (isPedidoExpirado(pedidoData)) {
+        await expirarPedidoOnline(token);
+        toast.error("O tempo de pagamento deste pedido expirou.");
+        // Atualiza o status localmente
+        pedidoData.status = "cancelado";
+        pedidoData.status_pagamento = "expirado";
+      }
+
+      setPedido(pedidoData);
     } catch (e: any) {
       setError(e.message || "Pedido não encontrado");
       toast.error("Pedido não encontrado");
@@ -186,6 +209,14 @@ function RastrearPage() {
           ...data,
           itens: normalizedItens,
         } as PedidoOnline;
+
+        // Verifica se o pedido expirou durante o polling
+        if (isPedidoExpirado(updatedPedido)) {
+          await expirarPedidoOnline(searchToken);
+          updatedPedido.status = "cancelado";
+          updatedPedido.status_pagamento = "expirado";
+          toast.error("O tempo de pagamento deste pedido expirou.");
+        }
 
         // Se o status mudou, notifica o usuário
         if (updatedPedido.status !== pedido.status) {
@@ -271,7 +302,26 @@ function RastrearPage() {
         {/* Detalhes do Pedido */}
         {pedido && !error && (
           <>
-            {/* Status atual */}
+            {/* Pedido expirado - mostra mensagem especial */}
+            {pedido.status === "cancelado" && pedido.status_pagamento === "expirado" && (
+              <div className="mb-6 rounded-xl border-2 border-red-200 bg-red-50 p-6 text-center">
+                <AlertTriangle className="mx-auto h-12 w-12 text-red-500" />
+                <h2 className="mt-3 text-lg font-bold text-red-700">Tempo de pagamento expirado</h2>
+                <p className="mt-2 text-sm text-red-600">
+                  O tempo limite de 5 minutos para pagamento acabou. Este pedido foi cancelado automaticamente.
+                </p>
+                <p className="mt-1 text-xs text-red-500">
+                  Código do pedido: {pedido.id.replace(/-/g, "").slice(0, 8).toUpperCase()}
+                </p>
+                <Button className="mt-4" onClick={() => window.location.href = "/loja"}>
+                  Fazer novo pedido
+                </Button>
+              </div>
+            )}
+
+            {/* Status atual - só mostra se não expirou */}
+            {!(pedido.status === "cancelado" && pedido.status_pagamento === "expirado") && (
+            <>
             <div className="mb-6 rounded-xl border bg-white p-6 shadow-sm">
               <div className="flex items-center gap-4">
                 <div className={`flex h-16 w-16 items-center justify-center rounded-full ${statusConfig[pedido.status]?.bgColor || 'bg-gray-100'}`}>
@@ -427,6 +477,8 @@ function RastrearPage() {
             >
               <Printer className="mr-2 h-4 w-4" /> Ver / Imprimir Cupom do Pedido
             </Button>
+            </>
+            )}
           </>
         )}
 

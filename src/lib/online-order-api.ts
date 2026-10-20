@@ -75,3 +75,17 @@ export async function buscarPedidoOnline(token: string): Promise<OnlineOrder | n
     throw new Error(errorMessage(e, primeiraFalha ?? "Não foi possível consultar o pedido"));
   }
 }
+
+/** Expira o pedido quando o tempo de pagamento acaba. Chama a função RPC para atualizar o status no banco. */
+export async function expirarPedidoOnline(token: string): Promise<void> {
+  if (!isUuid(token)) return;
+  
+  try {
+    const { error } = await (supabase as any).rpc("expirar_pedido_online", { _token: token });
+    if (error) {
+      console.warn("[loja] Não foi possível expirar o pedido:", error.message);
+    }
+  } catch (e) {
+    console.warn("[loja] Erro ao expirar pedido:", errorMessage(e));
+  }
+}

@@ -10,11 +10,11 @@ import { OrderSummary } from "@/components/OrderSummary";
 import { OrderTracker } from "@/components/OrderTracker";
 import { PixPaymentSection } from "@/components/PixPaymentSection";
 import { rememberOrder } from "@/hooks/useMyOrders";
-import { buscarPedidoOnline } from "@/lib/online-order-api";
+import { buscarPedidoOnline, expirarPedidoOnline } from "@/lib/online-order-api";
 import { errorMessage, isFinalStatus, orderCode } from "@/lib/online-order";
 
-// Tempo limite para pagamento em segundos (15 minutos)
-const PAYMENT_TIMEOUT_SECONDS = 15 * 60;
+// Tempo limite para pagamento em segundos (5 minutos)
+const PAYMENT_TIMEOUT_SECONDS = 5 * 60;
 
 function formatTime(seconds: number): string {
   if (seconds <= 0) return "00:00";
@@ -177,10 +177,14 @@ function PagamentoPage() {
     }
   }
 
-  function handleExpired() {
-    if (!pedidoExpirado) {
+  async function handleExpired() {
+    if (!pedidoExpirado && pedido) {
       setPedidoExpirado(true);
+      // Expira o pedido no banco de dados para não aparecer mais para outros clientes
+      await expirarPedidoOnline(token);
       toast.error("O tempo de pagamento expirou. Faça um novo pedido.");
+      // Atualiza o pedido para refletir o novo status
+      pedidoQ.refetch();
     }
   }
 
