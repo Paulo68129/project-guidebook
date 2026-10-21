@@ -8,6 +8,8 @@ import { brl } from "@/lib/data";
 export type PedidoAlerta = {
   numero: number;
   cliente: string;
+  telefone?: string;
+  endereco?: string;
   itens: { nome: string; quantidade: number; preco_unitario: number }[];
   total: number;
   created_at: string;
@@ -61,6 +63,8 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
             id: string;
             numero: number;
             cliente: string;
+            telefone: string;
+            endereco: string;
             total: number;
             tipo: string;
             created_at: string;
@@ -75,6 +79,8 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
           const pedido: PedidoAlerta = {
             numero: venda.numero,
             cliente: venda.cliente ?? "Cliente",
+            telefone: venda.telefone,
+            endereco: venda.endereco,
             itens: itens ?? [],
             total: Number(venda.total),
             created_at: venda.created_at,
@@ -101,6 +107,8 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
           const pedidoOnline = payload.new as {
             id: string;
             cliente: string;
+            telefone: string;
+            endereco: string;
             total: number;
             itens: any;
             created_at: string;
@@ -126,6 +134,8 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
           const pedido: PedidoAlerta = {
             numero: 0, // pedidos_online não tem número sequencial
             cliente: pedidoOnline.cliente ?? "Cliente",
+            telefone: pedidoOnline.telefone,
+            endereco: pedidoOnline.endereco,
             itens,
             total: Number(pedidoOnline.total),
             created_at: pedidoOnline.created_at,
@@ -231,9 +241,23 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
                       </span>
                     </div>
 
-                    <div className="mb-2 text-sm">
-                      <span className="text-muted-foreground">Cliente:</span>{" "}
-                      <span className="font-medium">{pedido.cliente}</span>
+                    <div className="mb-2 text-sm space-y-1">
+                      <div>
+                        <span className="text-muted-foreground">Cliente:</span>{" "}
+                        <span className="font-medium">{pedido.cliente}</span>
+                      </div>
+                      {pedido.telefone && (
+                        <div>
+                          <span className="text-muted-foreground">Telefone:</span>{" "}
+                          <span className="font-medium">{pedido.telefone}</span>
+                        </div>
+                      )}
+                      {pedido.endereco && (
+                        <div>
+                          <span className="text-muted-foreground">Endereço:</span>{" "}
+                          <span className="font-medium">{pedido.endereco}</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="mb-3 rounded-lg border bg-background p-2">
