@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as ApplyMigrationsRouteImport } from './routes/apply-migrations'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AvaliacoesRouteImport } from './routes/avaliacoes'
 import { Route as LojaRouteImport } from './routes/loja'
@@ -35,6 +36,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApplyMigrationsRoute = ApplyMigrationsRouteImport.update({
+  id: '/apply-migrations',
+  path: '/apply-migrations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -120,6 +126,7 @@ const PagamentoVendaIdRoute = PagamentoVendaIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/apply-migrations': typeof ApplyMigrationsRoute
   '/auth': typeof AuthRoute
   '/avaliacoes': typeof AvaliacoesRoute
   '/loja': typeof LojaRoute
@@ -139,6 +146,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/apply-migrations': typeof ApplyMigrationsRoute
   '/auth': typeof AuthRoute
   '/avaliacoes': typeof AvaliacoesRoute
   '/loja': typeof LojaRoute
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/apply-migrations': typeof ApplyMigrationsRoute
   '/auth': typeof AuthRoute
   '/avaliacoes': typeof AvaliacoesRoute
   '/loja': typeof LojaRoute
@@ -181,6 +190,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/apply-migrations'
     | '/auth'
     | '/avaliacoes'
     | '/loja'
@@ -200,6 +210,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/apply-migrations'
     | '/auth'
     | '/avaliacoes'
     | '/loja'
@@ -220,6 +231,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/apply-migrations'
     | '/auth'
     | '/avaliacoes'
     | '/loja'
@@ -241,6 +253,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  ApplyMigrationsRoute: typeof ApplyMigrationsRoute
   AuthRoute: typeof AuthRoute
   AvaliacoesRoute: typeof AvaliacoesRoute
   LojaRoute: typeof LojaRoute
@@ -263,6 +276,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/apply-migrations': {
+      id: '/apply-migrations'
+      path: '/apply-migrations'
+      fullPath: '/apply-migrations'
+      preLoaderRoute: typeof ApplyMigrationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -412,6 +432,7 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  ApplyMigrationsRoute: ApplyMigrationsRoute,
   AuthRoute: AuthRoute,
   AvaliacoesRoute: AvaliacoesRoute,
   LojaRoute: LojaRoute,

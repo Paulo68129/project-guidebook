@@ -86,6 +86,7 @@ export function OnlineOrderNFCE({ pedido, onPrint, onClose }: OnlineOrderNFCEPro
                 <div key={idx} className="text-xs flex justify-between">
                   <span>
                     {item.quantidade}x {item.nome}
+                    {item.descricao && <span className="text-gray-500"> — {item.descricao}</span>}
                   </span>
                   <span>{brl(Number(item.preco_unitario) * item.quantidade)}</span>
                 </div>

@@ -44,7 +44,7 @@ export function normalizeStatus(value: unknown): OrderStatus {
   return "aguardando_pagamento";
 }
 
-export type OnlineItem = { produto_id: string; nome: string; quantidade: number; preco_unitario: number };
+export type OnlineItem = { produto_id: string; nome: string; descricao: string | null; quantidade: number; preco_unitario: number };
 
 export type OnlineOrder = {
   id: string;
@@ -75,6 +75,10 @@ export type OnlineOrder = {
   recusado_em?: string | null;
   /** Horário de entrega do pedido */
   entregue_em?: string | null;
+  /** Observações do cliente */
+  observacoes?: string | null;
+  /** Origem do pedido: loja_online, pdv, delivery */
+  origem?: string | null;
 };
 
 export type PublicProduct = { id: string; nome: string; categoria: string; descricao: string | null; preco: number; imagem_path: string | null; imagem: string | null };
@@ -121,7 +125,7 @@ function parseJson(value: unknown): unknown {
   }
 }
 
-function normalizeItems(raw: unknown): OnlineItem[] {
+export function normalizeItems(raw: unknown): OnlineItem[] {
   const value = parseJson(raw);
   if (!Array.isArray(value)) return [];
   return value
@@ -129,6 +133,7 @@ function normalizeItems(raw: unknown): OnlineItem[] {
     .map((item) => ({
       produto_id: String(item["produto_id"] ?? ""),
       nome: String(item["nome"] ?? "Item"),
+      descricao: item["descricao"] ? String(item["descricao"]) : null,
       quantidade: Math.max(1, Math.round(toNumber(item["quantidade"])) || 1),
       preco_unitario: toNumber(item["preco_unitario"]),
     }));
@@ -159,6 +164,13 @@ export function normalizeOrder(raw: unknown): OnlineOrder | null {
   };
   if (typeof r["token"] === "string") order.token = r["token"];
   if ("motoboy_id" in r) order.motoboy_id = r["motoboy_id"] ? String(r["motoboy_id"]) : null;
+  if (typeof r["observacoes"] === "string") order.observacoes = r["observacoes"];
+  if (typeof r["origem"] === "string") order.origem = r["origem"];
+  if (typeof r["status_delivery"] === "string") order.status_delivery = r["status_delivery"];
+  if (typeof r["motivo_recusa"] === "string") order.motivo_recusa = r["motivo_recusa"];
+  if (typeof r["aceito_em"] === "string") order.aceito_em = r["aceito_em"];
+  if (typeof r["recusado_em"] === "string") order.recusado_em = r["recusado_em"];
+  if (typeof r["entregue_em"] === "string") order.entregue_em = r["entregue_em"];
   return order;
 }
 

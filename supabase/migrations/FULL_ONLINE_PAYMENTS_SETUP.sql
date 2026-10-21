@@ -295,6 +295,7 @@ BEGIN
     snap := snap || jsonb_build_array(
       jsonb_build_object(
         'nome', p.nome,
+        'descricao', p.descricao,
         'produto_id', p.id,
         'quantidade', (e->>'quantidade')::int,
         'preco_unitario', p.preco

@@ -47,6 +47,7 @@ export function OrderSummary({ pedido }: { pedido: OnlineOrder }) {
             <li key={`${item.produto_id}-${idx}`} className="flex items-center justify-between gap-3 py-3 first:pt-0">
               <div className="min-w-0">
                 <p className="truncate font-medium">{item.nome}</p>
+                {item.descricao && <p className="truncate text-sm text-muted-foreground">{item.descricao}</p>}
                 <p className="text-sm text-muted-foreground">
                   {item.quantidade}x {brl(item.preco_unitario)}
                 </p>

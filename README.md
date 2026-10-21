@@ -478,32 +478,45 @@ Aguardando Pagamento → Pago → Em Preparação → Saiu para Entrega → Entr
 
 ---
 
-## 🔔 Integração Loja Online → Delivery
+## 🔔 Fila Unificada de Pedidos (PDV + Delivery + Loja Online)
 
-Sistema completo de integração entre a Loja Online e o módulo Delivery, garantindo que pedidos cheguem instantaneamente aos atendentes com notificações visuais e sonoras.
+Todas as origens de venda (PDV, Delivery e Loja Online) compartilham a **mesma fila operacional**, garantindo que qualquer pedido realizado chegue obrigatoriamente ao vendedor/atendente com 100% de confiabilidade.
+
+### 🏪 Origens do Pedido
+
+Cada pedido é identificado pela sua origem:
+
+| Origem | Canal | Tabela | Badge |
+|--------|-------|--------|-------|
+| **PDV** | Venda presencial | `vendas` | 🟠 Laranja |
+| **DELIVERY** | Pedido por telefone/app | `vendas` | 🟢 Verde |
+| **LOJA ONLINE** | Loja online (cliente) | `pedidos_online` | 🔵 Azul |
+
+O campo `origem` na tabela `pedidos_online` é automaticamente preenchido como `'loja_online'` pela função `criar_pedido_online()`.
 
 ### 📋 Recebimento Automático de Pedidos
 
-- Quando um cliente finaliza uma compra na Loja Online, o pedido é enviado automaticamente para o módulo Delivery
-- O pedido aparece em tempo real para os atendentes sem necessidade de atualização manual
-- Notificação visual destacada informa a chegada de um novo pedido
+- **Loja Online**: Quando um cliente finaliza uma compra, o pedido é criado em `pedidos_online` e aparece instantaneamente no Delivery
+- **PDV/Delivery**: Pedidos criados diretamente no sistema aparecem em `vendas` e são exibidos na mesma fila
+- A campainha (`OrderBell`) escuta **ambas as tabelas** via Supabase Realtime
+- Nenhum pedido é perdido, independentemente da origem
 - Sincronização instantânea via **Supabase Realtime**
 
-### 🔊 Alerta Sonoro
+### 🔊 Alerta Sonoro Unificado
 
-- Ao receber um novo pedido, reproduz automaticamente um som de campainha
+- Ao receber um novo pedido (de qualquer origem), reproduz automaticamente um som de campainha
 - O som toca mesmo que o operador esteja em outra aba do sistema
 - O alerta é executado apenas uma vez por pedido para evitar repetições
 - Opção nas configurações para ativar ou desativar o som
 - Implementado via **Web Audio API** para máxima compatibilidade
 
-### 🆔 Identificação Visual de Novos Pedidos
+### 🆔 Identificação Visual por Origem
 
-- Pedidos recém-chegados são destacados com cor verde diferenciada
-- Selo "NOVO PEDIDO" exibido durante os primeiros 3 minutos
+- Cada card de pedido exibe um **badge colorido** indicando a origem (PDV, DELIVERY, LOJA ONLINE)
+- Pedidos da Loja Online incluem informações completas: telefone, endereço, itens com descrições, cupom, observações
+- Pedidos do PDV incluem número sequencial da venda
 - Horário exato de entrada do pedido visível no card
-- Animação de pulso para chamar atenção dos atendentes
-- Badge "Novo!" no cabeçalho do painel quando há pedidos recentes
+- Painel de alertas (`OrderBell`) mostra origem de cada pedido com cores distintas
 
 ### ⏱️ Expiração Automática (5 minutos)
 
@@ -523,15 +536,34 @@ Sistema completo de integração entre a Loja Online e o módulo Delivery, garan
   - Exclusão de eventos de notificação relacionados
   - Apenas registros históricos de auditoria permanecem
 
-### 🔄 Sincronização em Tempo Real
+### 🔄 Sincronização em Tempo Real — Sistema Híbrido
 
-- **Supabase Realtime** para sincronização instantânea
-- Quando o pedido for aceito, rejeitado, cancelado ou expirado, todas as telas são atualizadas automaticamente
-- Atualização simultânea em:
-  - Loja Online
-  - Delivery
-  - PDV
-  - Painel Administrativo
+O sistema utiliza um mecanismo híbrido para garantir **100% de confiabilidade** na entrega dos pedidos:
+
+**Canal Principal — Supabase Realtime:**
+- Escuta eventos PostgreSQL via WebSocket em tempo real
+- Detecta `INSERT`, `UPDATE` e `DELETE` na tabela `pedidos_online`
+- Reconnect automático com backoff exponencial (2s, 4s, 8s, max 30s)
+- Heartbeat para detectar conexões mortas
+- Indicador visual de conexão no painel de delivery (verde = ativo, amarelo = fallback)
+
+**Canal Secundário — Polling Automático (Fallback):**
+- Consulta automática a cada **5 segundos** no módulo Delivery
+- Garante recebimento de pedidos mesmo se o Realtime falhar
+- Busca pedidos com status: `aguardando_pagamento`, `novo`, `pago`
+- Continua rodando como redundância mesmo com Realtime ativo
+
+**Fluxo de Recuperação:**
+- Ao abrir ou recarregar a tela de Delivery, o sistema busca automaticamente todos os pedidos pendentes
+- Restaura notificações e toca alertas sonoros para pedidos não processados
+- Nenhum pedido é perdido mesmo após: atualização da página, reinício do navegador, perda de internet, ou falha do Realtime
+
+**Atualização simultânea em:**
+- Loja Online
+- Delivery
+- PDV
+- Rastreamento do Cliente
+- Painel Administrativo
 
 ### 📊 Logs de Auditoria
 
@@ -547,21 +579,116 @@ Sistema completo de integração entre a Loja Online e o módulo Delivery, garan
 ### 🛠️ Implementação Técnica
 
 **Arquivos Principais:**
-- `src/hooks/useNewOrderSound.ts` - Hook de alerta sonoro
-- `src/hooks/useOnlineOrdersRealtime.ts` - Hook de Realtime
-- `src/components/OnlineOrders.tsx` - Componente do PDV com Realtime
-- `src/routes/_authenticated/delivery.tsx` - Página de delivery com Realtime
-- `supabase/migrations/0005_delivery_integration.sql` - Migração SQL completa
+- `src/components/OrderBell.tsx` - Campainha unificada: escuta `vendas` (PDV) e `pedidos_online` (Loja Online)
+- `src/hooks/useNewOrderSound.ts` - Hook de alerta sonoro com Web Audio API
+- `src/hooks/useOnlineOrdersRealtime.ts` - Hook de Realtime com reconnect automático
+- `src/routes/_authenticated/delivery.tsx` - Fila unificada com badges de origem (PDV/LOJA ONLINE)
+- `src/lib/online-order-api.ts` - API de pedidos online (enviar, buscar, aceitar, recusar)
+- `src/lib/online-order.ts` - Tipos, normalização e utilitários de pedidos
+- `src/hooks/useMyOrders.ts` - Gerenciamento de pedidos rastreados pelo cliente
+- `supabase/migrations/0011_consolidated_migrations.sql` - Migração consolidada (Realtime + tracking + origem)
 
 **Funções RPC:**
+- `criar_pedido_online()` - Cria pedido com `origem = 'loja_online'` automaticamente
 - `limpar_pedidos_expirados()` - Limpa pedidos expirados automaticamente
-- `confirmar_pagamento_pedido(_token)` - Confirma pagamento e inicia delivery
-- `listar_pedidos_delivery()` - Lista pedidos com status de novo/expirado
-- `registrar_audit_pedido()` - Registra ações no audit log
+- `confirmar_pagamento_online(_pedido_id)` - Confirma pagamento e vincula ao PDV
+- `aceitar_pedido(_pedido_id)` - Aceita o pedido no delivery
+- `recusar_pedido(_pedido_id, _motivo)` - Recusa o pedido com motivo
+- `adicionar_rastreamento()` - Registra evento de rastreamento
+- `listar_rastreamento(_pedido_id)` - Lista histórico de rastreamento
 
 **Hooks Customizados:**
 - `useNewOrderSound()` - Gerencia alertas sonoros com Web Audio API
-- `useOnlineOrdersRealtime()` - Subscrição Realtime para mudanças instantâneas
+- `useOnlineOrdersRealtime()` - Subscrição Realtime com reconnect, heartbeat, e logging
+- `useMyOrders()` - Gerencia pedidos rastreados localmente pelo cliente
+
+### ⚠️ CONFIGURAÇÃO OBRIGATÓRIA DO BANCO DE DADOS
+
+**Antes de usar o sistema, é necessário aplicar as migrações SQL no banco de dados.**
+
+O diagnóstico revelou que apenas a tabela `pedidos_online` existe no banco. As seguintes tabelas e funções **precisam ser criadas**:
+
+- ❌ `pagamentos_online` — Auditoria de pagamentos PIX
+- ❌ `pedidos_online_audit` — Log de ações nos pedidos
+- ❌ `rastreamento_pedidos` — Histórico de status para rastreamento
+- ❌ `notificacoes_delivery` — Notificações pendentes do delivery
+- ❌ `feedback_clientes` — Avaliações dos clientes
+- ❌ `respostas_feedback` — Respostas da loja aos feedbacks
+- ❌ Funções RPC: `criar_pedido_online`, `confirmar_pagamento_online`, `adicionar_rastreamento`, `listar_rastreamento`, etc.
+- ❌ Configuração de `REPLICA IDENTITY FULL` para Supabase Realtime
+- ❌ Triggers automáticas de rastreamento e notificação
+
+#### 🚀 Método 1 — Página de Migrações (Automático, Recomendado)
+
+Após o deploy da aplicação, acesse a página de migrações:
+
+```
+https://seu-projeto.vercel.app/apply-migrations
+```
+
+1. Abra a URL acima no navegador
+2. Clique em **"🚀 Aplicar Migrações"**
+3. Aguarde a execução (deve levar ~30 segundos)
+4. Verifique se as 6 tabelas foram criadas com sucesso
+
+**Como funciona:** A página usa o cliente admin do Supabase (service_role key) configurado automaticamente pelo Lovable Cloud para executar as migrações SQL diretamente no banco de dados. Não é necessário acesso ao SQL Editor ou Supabase CLI.
+
+#### 📋 Método 2 — Lovable SQL Editor
+
+1. No editor Lovable, abra o **SQL Editor** do projeto
+2. Copie o conteúdo de: `supabase/migrations/0011_consolidated_migrations.sql`
+3. Cole no SQL Editor e clique em **RUN**
+4. Aguarde a execução completar (deve levar ~10 segundos)
+
+#### 📋 Método 3 — Supabase Dashboard
+
+1. Acesse: https://supabase.com/dashboard/project/lstycewiltrbefrxicdx/sql
+2. Copie o conteúdo de: `supabase/migrations/0011_consolidated_migrations.sql`
+3. Cole no SQL Editor e clique em **RUN**
+
+#### 📋 Método 4 — Supabase CLI (se disponível)
+
+```bash
+supabase login
+supabase link --project-ref lstycewiltrbefrxicdx
+supabase db push
+```
+
+#### ✅ Validação após aplicação
+
+Execute esta query no SQL Editor para verificar se tudo foi aplicado corretamente:
+
+```sql
+-- Verificar tabelas na publicação do Realtime
+SELECT * FROM pg_publication_tables WHERE pubname = 'supabase_realtime';
+
+-- Verificar replica identity
+SELECT relname, relreplident 
+FROM pg_class 
+WHERE relname IN ('pedidos_online', 'rastreamento_pedidos', 'notificacoes_delivery');
+
+-- Verificar funções RPC
+SELECT routine_name FROM information_schema.routines 
+WHERE routine_schema = 'public' AND routine_name IN (
+  'criar_pedido_online', 'confirmar_pagamento_online', 'adicionar_rastreamento', 'listar_rastreamento',
+  'criar_notificacao_delivery', 'marcar_notificacao_analisada',
+  'listar_notificacoes_pendentes', 'criar_feedback', 'apply_migration_sql'
+);
+```
+
+**Resultado esperado:** 7 tabelas na publicação do Realtime e todas as funções listadas.
+
+#### 📊 O que a migração consolidada faz
+
+O arquivo `0011_consolidated_migrations.sql` contém **todas as migrações 0007, 0008 e 0009** em um único script idempotente:
+
+1. **Migração 0007** — `REPLICA IDENTITY FULL` para Supabase Realtime em 7 tabelas
+2. **Migração 0008** — Tabelas de rastreamento e notificações com triggers automáticas
+3. **Migração 0009** — Descrição dos produtos nos itens do pedido
+4. **Funções RPC** — `criar_pedido_online`, `aceitar_pedido`, `recusar_pedido`, etc.
+5. **Triggers** — Rastreamento automático, notificações, updated_at, webhooks
+6. **RLS** — Políticas de segurança em todas as tabelas
+7. **Grants** — Permissões para `anon`, `authenticated` e `service_role`
 
 ### ✅ Aceite e Recusa de Pedidos
 
@@ -828,12 +955,71 @@ Tema escuro quente, inspirado em forno a lenha, definido em `src/styles.css` com
 
 ## 🚀 Build e deploy
 
+### Build Local
+
 ```bash
 npm run build
 npm run preview
 ```
 
 O build é feito pelo Nitro, e o alvo padrão definido pela configuração da Lovable é **Cloudflare**. Para outro provedor, ajuste o preset do Nitro em `vite.config.ts` via `defineConfig({ vite: { ... } })`. Lembre-se de configurar as variáveis de ambiente no provedor escolhido.
+
+### Deploy na Vercel
+
+O projeto está configurado para deploy na Vercel via `vercel.json`. Para fazer o deploy:
+
+```bash
+# Instalar CLI da Vercel (se necessário)
+npm i -g vercel
+
+# Fazer deploy
+vercel
+```
+
+**Variáveis de ambiente obrigatórias na Vercel:**
+
+Acesse o painel da Vercel → Settings → Environment Variables e adicione:
+
+| Variável | Descrição |
+|---|---|
+| `VITE_SUPABASE_URL` | URL do seu projeto Supabase |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Chave pública/anon do Supabase |
+
+**Variáveis opcionais (PIX Dinâmico via Enviare):**
+
+| Variável | Descrição |
+|---|---|
+| `ENVIARE_API_KEY` | Chave API da Enviare |
+| `ENVIARE_MERCHANT_ID` | ID do estabelecimento |
+| `ENVIARE_WEBHOOK_SECRET` | Segredo HMAC para webhook |
+| `ENVIARE_WEBHOOK_URL` | URL da Edge Function do webhook |
+
+**Configuração do `vercel.json`:**
+- Framework: `tanstack-start`
+- Build command: `npm run build`
+- Output directory: `.output`
+- Rewrites: Todas as rotas redirecionadas para `/` (SPA routing)
+- Headers: Segurança (`X-Content-Type-Options`, `X-Frame-Options`)
+
+### Migrações SQL no Supabase
+
+Após o deploy, **aplique as migrações SQL** no seu projeto Supabase:
+
+```bash
+# Método 1 (Recomendado)
+supabase db push
+
+# Método 2
+# Supabase Dashboard → SQL Editor → Executar cada migração em ordem:
+# supabase/migrations/0001_online_store.sql
+# supabase/migrations/0002_online_payment.sql
+# supabase/migrations/0005_delivery_integration.sql
+# supabase/migrations/0006_feedback_and_order_flow.sql
+# supabase/migrations/0007_fix_realtime_replication.sql  ← Obrigatório para Realtime
+# supabase/migrations/0008_tracking_and_notifications.sql
+```
+
+> **Importante:** A migração `0007_fix_realtime_replication.sql` é obrigatória para o sistema de sincronização em tempo real funcionar corretamente. Ela configura `REPLICA IDENTITY FULL` nas tabelas monitoradas pelo Supabase Realtime.
 
 ## 📝 Convenções de código
 

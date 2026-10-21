@@ -8,13 +8,15 @@ import { PageHeader, RouteError } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { NFCEPrint } from "@/components/NFCEPrint";
 import { OnlineOrderNFCE } from "@/components/OnlineOrderNFCE";
 import type { OnlineOrder } from "@/lib/online-order";
 import { useNewOrderSound } from "@/hooks/useNewOrderSound";
 import { useOnlineOrdersRealtime } from "@/hooks/useOnlineOrdersRealtime";
 import { aceitarPedido, recusarPedido } from "@/lib/online-order-api";
-import { CheckCircle, XOctagon } from "lucide-react";
+import { normalizeItems } from "@/lib/online-order";
+import { CheckCircle, XOctagon, MapPin, Phone, Clock, FileText, User, ShoppingBag, X } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/delivery")({
   head: () => ({ meta: [{ title: "Delivery — PizzaStockAI" }, { name: "description", content: "Acompanhe pedidos de delivery do preparo à entrega." }, { property: "og:title", content: "Delivery — PizzaStockAI" }, { property: "og:description", content: "Quadro de pedidos de delivery." }] }),
@@ -50,7 +52,7 @@ function Delivery() {
   const [nfceOnline, setNfceOnline] = useState<OnlineOrder | null>(null);
   
   // Hook de alerta sonoro para novos pedidos
-  const { playNewOrderSound } = useNewOrderSound();
+  const { playNewOrderSound, clearPlayedOrders } = useNewOrderSound();
   
   // Estado para diálogo de recusa
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -58,47 +60,109 @@ function Delivery() {
   const [rejectOrderTipo, setRejectOrderTipo] = useState<"venda" | "online" | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
-  // Busca pedidos online com auto-refresh
-  const { data: pedidosOnline } = useQuery({
+  // Estado para painel lateral de detalhes do pedido
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+
+  // Abrir painel de detalhes do pedido
+  function openOrderDetail(order: any) {
+    setSelectedOrder(order);
+    setDetailSheetOpen(true);
+  }
+
+  // Busca pedidos online com auto-refresh a cada 5 segundos (fallback do Realtime)
+  const { data: pedidosOnline, isLoading: isLoadingPedidos } = useQuery({
     queryKey: ["pedidos-online-delivery"],
-    refetchInterval: 15000,
+    refetchInterval: 5000,
     queryFn: async () => {
-      const desde = new Date(Date.now() - 2 * 86400000).toISOString();
       const { data, error } = await supabase
         .from("pedidos_online")
-        .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, status, motoboy_id, created_at")
-        .gte("created_at", desde)
+        .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, status, motoboy_id, created_at, cupom, status_delivery, motivo_recusa, aceito_em, recusado_em, entregue_em, observacoes")
+        .in("status", ["aguardando_pagamento", "pago", "novo", "preparo", "saiu"])
         .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as unknown as OnlineOrder[];
+      if (error) {
+        console.error("[Delivery] Erro ao buscar pedidos online:", error);
+        throw error;
+      }
+      console.log("[Delivery] Pedidos online carregados:", data?.length || 0);
+      // Normaliza a coluna "itens" (JSONB) para garantir que cada item tenha nome, quantidade, etc.
+      const normalized = (data ?? []).map((row) => ({
+        ...row,
+        itens: normalizeItems(row.itens),
+      })) as unknown as OnlineOrder[];
+      return normalized;
     },
   });
 
+  // Recuperação de pedidos pendentes ao montar a tela
+  // Garante que nenhum pedido seja perdido mesmo após queda de conexão ou reinício
+  useEffect(() => {
+    if (!isLoadingPedidos && pedidosOnline && pedidosOnline.length > 0) {
+      // Limpa o set de pedidos já tocados para permitir alerta em pedidos pendentes
+      clearPlayedOrders();
+      
+      // Conta pedidos aguardando pagamento ou novos
+      const pendentes = pedidosOnline.filter(p => 
+        p.status === "aguardando_pagamento" || p.status === "novo"
+      );
+      
+      if (pendentes.length > 0) {
+        console.log(`[Delivery] 🔄 Recuperação: ${pendentes.length} pedido(s) pendente(s) encontrado(s)`);
+        
+        // Toca o som para cada pedido pendente
+        pendentes.forEach(p => {
+          playNewOrderSound(p.id);
+        });
+        
+        // Mostra notificação visual
+        toast.info(`📦 ${pendentes.length} pedido(s) pendente(s) recuperado(s)`, {
+          duration: 8000,
+        });
+      }
+    }
+  }, [isLoadingPedidos, pedidosOnline, clearPlayedOrders, playNewOrderSound]);
+
   // Realtime - detecta novos pedidos instantaneamente
-  useOnlineOrdersRealtime({
+  const { isConnected: realtimeConnected, reconnectAttempts } = useOnlineOrdersRealtime({
     onNewOrder: useCallback((order: any) => {
-      console.log("[Delivery] Novo pedido detectado via Realtime:", order.id);
+      console.log("[Delivery] 🔔 Novo pedido detectado via Realtime:", order.id, "cliente:", order.cliente);
       
       // Toca o som de campainha
       playNewOrderSound(order.id);
       
-      // Mostra notificação visual
+      // Mostra notificação visual destacada
       toast.success(`🔔 Novo pedido de ${order.cliente}!`, {
-        duration: 5000,
+        duration: 8000,
+        position: "top-center",
       });
       
-      // Invalida o cache para atualizar a lista
+      // Invalida o cache para atualizar a lista imediatamente
       qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
     }, [playNewOrderSound, qc]),
     
     onOrderStatusChange: useCallback((order: any) => {
-      console.log("[Delivery] Status do pedido alterado:", order.id, "→", order.status);
+      console.log("[Delivery] 🔄 Status do pedido alterado:", order.id, "→", order.status);
+      
+      // Se o pagamento foi confirmado, notifica
+      if (order.status === "pago" || order.status === "pagamento_confirmado") {
+        toast.success(`💳 Pagamento confirmado para pedido de ${order.cliente}!`, {
+          duration: 5000,
+        });
+      }
+      
       qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
     }, [qc]),
     
     onOrderExpired: useCallback((order: any) => {
-      console.log("[Delivery] Pedido expirado:", order.id);
-      toast.info(`Pedido de ${order.cliente} expirado automaticamente.`);
+      console.log("[Delivery] ⏰ Pedido expirado:", order.id, "cliente:", order.cliente);
+      toast.info(`⏰ Pedido de ${order.cliente} expirado automaticamente.`, {
+        duration: 5000,
+      });
+      qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+    }, [qc]),
+    
+    onOrderDeleted: useCallback((order: any) => {
+      console.log("[Delivery] 🗑️ Pedido removido:", order?.id);
       qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
     }, [qc]),
   });
@@ -129,10 +193,21 @@ function Delivery() {
       telefone: string;
       endereco: string;
       total: number;
-      itens: Array<{ nome: string; quantidade: number }>;
+      subtotal: number;
+      desconto: number;
+      taxa_entrega: number;
+      cupom: string | null;
+      observacoes: string | null;
+      itens: Array<{ nome: string; descricao?: string | null; quantidade: number; preco_unitario?: number }>;
       motoboy_id?: string | null;
       created_at: string;
       numero?: string;
+      status?: string;
+      status_delivery?: string | null;
+      motivo_recusa?: string | null;
+      aceito_em?: string | null;
+      recusado_em?: string | null;
+      entregue_em?: string | null;
     }> = [];
 
     // Adiciona vendas do tipo delivery
@@ -147,10 +222,16 @@ function Delivery() {
             telefone: v.telefone || "",
             endereco: v.endereco || "",
             total: Number(v.total),
-            itens: v.venda_itens.map((i) => ({ nome: i.nome, quantidade: i.quantidade })),
+            subtotal: Number(v.subtotal || 0),
+            desconto: Number(v.desconto || 0),
+            taxa_entrega: Number(v.taxa_entrega || 0),
+            cupom: null,
+            observacoes: null,
+            itens: v.venda_itens.map((i) => ({ nome: i.nome, quantidade: i.quantidade, preco_unitario: Number(i.preco_unitario || 0) })),
             motoboy_id: v.motoboy_id || null,
             created_at: v.created_at,
             numero: v.numero,
+            status: v.status,
           }))
       );
     }
@@ -167,9 +248,20 @@ function Delivery() {
             telefone: p.telefone,
             endereco: p.endereco,
             total: Number(p.total),
-            itens: p.itens?.map((i) => ({ nome: i.nome, quantidade: i.quantidade })) || [],
+            subtotal: Number(p.subtotal),
+            desconto: Number(p.desconto),
+            taxa_entrega: Number(p.taxa_entrega),
+            cupom: p.cupom || null,
+            observacoes: (p as any).observacoes || null,
+            itens: p.itens?.map((i) => ({ nome: i.nome, descricao: i.descricao, quantidade: i.quantidade, preco_unitario: i.preco_unitario })) || [],
             motoboy_id: (p as OnlineOrder & { motoboy_id?: string | null }).motoboy_id || null,
             created_at: p.created_at,
+            status: p.status,
+            status_delivery: (p as any).status_delivery || null,
+            motivo_recusa: (p as any).motivo_recusa || null,
+            aceito_em: (p as any).aceito_em || null,
+            recusado_em: (p as any).recusado_em || null,
+            entregue_em: (p as any).entregue_em || null,
           }))
       );
     }
@@ -268,9 +360,37 @@ function Delivery() {
     }
   }
 
+  // Conta pedidos pendentes (aguardando pagamento ou novos)
+  const pedidosPendentes = pedidosOnline?.filter(p => 
+    p.status === "aguardando_pagamento" || p.status === "novo"
+  ).length ?? 0;
+
   return (
     <div>
-      <PageHeader title="Delivery" sub="Pedidos das últimas 48h — atualiza sozinho" />
+      <PageHeader 
+        title="Delivery" 
+        sub={
+          <span className="flex items-center gap-2">
+            <span>Pedidos das últimas 48h — atualiza sozinho</span>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+              realtimeConnected 
+                ? "bg-green-100 text-green-700" 
+                : "bg-yellow-100 text-yellow-700"
+            }`}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${
+                realtimeConnected ? "bg-green-500" : "bg-yellow-500 animate-pulse"
+              }`} />
+              {realtimeConnected ? "Realtime ativo" : `Fallback polling ${reconnectAttempts > 0 ? `(reconectando: ${reconnectAttempts})` : ""}`}
+            </span>
+            {pedidosPendentes > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-500 animate-pulse" />
+                {pedidosPendentes} pendente{pedidosPendentes > 1 ? 's' : ''}
+              </span>
+            )}
+          </span>
+        }
+      />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {cols.map((c) => {
           const list = getPedidosByColumn(c.s);
@@ -279,30 +399,85 @@ function Delivery() {
               <h2 className="mb-3 font-display font-semibold">{c.t} <span className="text-muted-foreground">({list.length})</span></h2>
               <div className="space-y-3">
                 {list.slice(0, c.s === "entregue" ? 10 : 100).map((p) => (
-                  <div key={p.id} className="rounded-lg border bg-card p-3 text-sm">
+                  <div
+                    key={p.id}
+                    className="rounded-lg border bg-card p-3 text-sm cursor-pointer hover:border-primary hover:shadow-md transition"
+                    onClick={() => c.s === "novo" && openOrderDetail(p)}
+                  >
                     <div className="flex justify-between font-semibold">
                       <span>
                         {p.tipo === "venda" && p.numero ? `#${p.numero} ` : ""}
                         {p.cliente}
                         {p.tipo === "online" && (
-                          <span className="ml-1 inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Online</span>
+                          <span className="ml-1 inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">LOJA ONLINE</span>
+                        )}
+                        {p.tipo === "venda" && (
+                          <span className="ml-1 inline-block rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700">PDV</span>
                         )}
                       </span>
                       <span>{brl(p.total)}</span>
                     </div>
-                    <div className="text-xs text-muted-foreground">{p.endereco} · {p.telefone}</div>
-                    <div className="text-xs text-muted-foreground">{new Date(p.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</div>
-                    <ul className="mt-2 text-xs">
-                      {p.itens && p.itens.length > 0 ? p.itens.map((i, idx) => <li key={idx}>{i.quantidade}× {i.nome}</li>) : <li>Sem itens</li>}
+                    <div className="mt-1 space-y-1">
+                      <div className="text-xs text-muted-foreground">📞 {p.telefone}</div>
+                      <div className="text-xs text-muted-foreground">📍 {p.endereco}</div>
+                      <div className="text-xs text-muted-foreground">🕐 {new Date(p.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>
+                      {p.status && (
+                        <div className="text-xs">
+                          <span className="font-medium">Status:</span> {p.status}
+                          {p.status_delivery && p.status_delivery !== "pendente" && (
+                            <span className="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">{p.status_delivery}</span>
+                          )}
+                        </div>
+                      )}
+                      {p.observacoes && (
+                        <div className="text-xs rounded bg-yellow-50 p-1.5 text-yellow-800">
+                          <span className="font-medium">📝 Observações:</span> {p.observacoes}
+                        </div>
+                      )}
+                    </div>
+                    <ul className="mt-2 space-y-1 text-xs">
+                      {p.itens && p.itens.length > 0 ? p.itens.map((i, idx) => (
+                        <li key={idx} className="flex justify-between">
+                          <span>
+                            {i.quantidade}× {i.nome}
+                            {i.descricao && <span className="text-muted-foreground"> — {i.descricao}</span>}
+                          </span>
+                          {i.preco_unitario && <span className="text-muted-foreground">{brl(i.preco_unitario * i.quantidade)}</span>}
+                        </li>
+                      )) : <li>Sem itens</li>}
                     </ul>
+                    {p.tipo === "online" && (
+                      <div className="mt-2 rounded border bg-muted/50 p-2 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Subtotal:</span>
+                          <span>{brl(p.subtotal)}</span>
+                        </div>
+                        {p.desconto > 0 && (
+                          <div className="flex justify-between text-green-600">
+                            <span>Desconto{p.cupom ? ` (${p.cupom})` : ""}:</span>
+                            <span>-{brl(p.desconto)}</span>
+                          </div>
+                        )}
+                        {p.taxa_entrega > 0 && (
+                          <div className="flex justify-between">
+                            <span>Taxa de entrega:</span>
+                            <span>{brl(p.taxa_entrega)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-semibold pt-1 border-t">
+                          <span>Total:</span>
+                          <span>{brl(p.total)}</span>
+                        </div>
+                      </div>
+                    )}
                     {c.s !== "entregue" && (
-                      <select className="mt-2 w-full rounded border bg-background p-1 text-xs" value={p.motoboy_id ?? ""} onChange={(e) => update(p.id, p.tipo, { motoboy_id: e.target.value || null })}>
+                      <select className="mt-2 w-full rounded border bg-background p-1 text-xs" value={p.motoboy_id ?? ""} onClick={(e) => e.stopPropagation()} onChange={(e) => update(p.id, p.tipo, { motoboy_id: e.target.value || null })}>
                         <option value="">Sem motoboy</option>
                         {motoboys.filter((m) => m.ativo).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
                       </select>
                     )}
                     {c.s === "novo" && p.tipo === "online" && (
-                      <div className="mt-2 flex gap-2">
+                      <div className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
                         <Button
                           size="sm"
                           className="flex-1 bg-green-600 hover:bg-green-700 text-white"
@@ -323,13 +498,13 @@ function Delivery() {
                       </div>
                     )}
                     {c.next && c.s !== "novo" && (
-                      <div className="mt-2 flex gap-2">
+                      <div className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
                         <Button size="sm" className="flex-1" onClick={() => update(p.id, p.tipo, { status: c.next! })}>{c.btn}</Button>
                         <Button size="sm" variant="ghost" onClick={() => update(p.id, p.tipo, { status: "cancelado" })}>Cancelar</Button>
                       </div>
                     )}
                     {c.next && c.s === "novo" && p.tipo === "venda" && (
-                      <div className="mt-2 flex gap-2">
+                      <div className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
                         <Button size="sm" className="flex-1" onClick={() => update(p.id, p.tipo, { status: c.next! })}>{c.btn}</Button>
                         <Button size="sm" variant="ghost" onClick={() => update(p.id, p.tipo, { status: "cancelado" })}>Cancelar</Button>
                       </div>
@@ -360,6 +535,223 @@ function Delivery() {
             toast.success("Nota fiscal enviada para impressão!");
           }}
         />
+      )}
+
+      {/* Painel lateral de detalhes do pedido */}
+      {selectedOrder && (
+        <Sheet open={detailSheetOpen} onOpenChange={setDetailSheetOpen}>
+          <SheetContent className="w-[95vw] max-w-[95vw] sm:max-w-2xl overflow-y-auto p-0" side="right">
+            <SheetHeader className="sticky top-0 z-10 bg-background px-6 pt-6 pb-4 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <SheetTitle className="flex items-center gap-2">
+                    <ShoppingBag className="h-5 w-5 text-primary" />
+                    Detalhes do Pedido
+                  </SheetTitle>
+                  <SheetDescription>
+                    {selectedOrder.tipo === "venda" && selectedOrder.numero
+                      ? `Pedido #${selectedOrder.numero}`
+                      : "Pedido Online"}
+                    {selectedOrder.tipo === "online" && (
+                      <span className="ml-2 inline-block rounded bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                        LOJA ONLINE
+                      </span>
+                    )}
+                    {selectedOrder.tipo === "venda" && (
+                      <span className="ml-2 inline-block rounded bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">
+                        PDV
+                      </span>
+                    )}
+                  </SheetDescription>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setDetailSheetOpen(false)}>
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            </SheetHeader>
+
+            <div className="space-y-6 px-6 py-4">
+              {/* Informações do Cliente */}
+              <div className="rounded-xl border bg-muted/30 p-4">
+                <h3 className="mb-3 flex items-center gap-2 font-semibold text-primary">
+                  <User className="h-4 w-4" />
+                  Informações do Cliente
+                </h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">{selectedOrder.cliente}</span>
+                  </div>
+                  {selectedOrder.telefone && (
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      <span>{selectedOrder.telefone}</span>
+                    </div>
+                  )}
+                  {selectedOrder.endereco && (
+                    <div className="flex items-start gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+                      <span>{selectedOrder.endereco}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">
+                      {new Date(selectedOrder.created_at).toLocaleString("pt-BR", {
+                        day: "2-digit", month: "2-digit", year: "numeric",
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Itens do Pedido */}
+              <div className="rounded-xl border bg-muted/30 p-4">
+                <h3 className="mb-3 flex items-center gap-2 font-semibold text-primary">
+                  <ShoppingBag className="h-4 w-4" />
+                  Itens do Pedido
+                </h3>
+                <div className="space-y-3">
+                  {selectedOrder.itens && selectedOrder.itens.length > 0 ? (
+                    selectedOrder.itens.map((item: any, idx: number) => (
+                      <div key={idx} className="flex items-start justify-between gap-4 rounded-lg border bg-card p-3">
+                        <div className="flex-1">
+                          <div className="font-medium">{item.nome}</div>
+                          {item.descricao && (
+                            <div className="text-xs text-muted-foreground mt-0.5">{item.descricao}</div>
+                          )}
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {item.quantidade}× {brl(item.preco_unitario || 0)}
+                          </div>
+                        </div>
+                        <div className="font-semibold text-primary whitespace-nowrap">
+                          {brl((item.preco_unitario || 0) * item.quantidade)}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Sem itens</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Resumo Financeiro */}
+              <div className="rounded-xl border bg-muted/30 p-4">
+                <h3 className="mb-3 flex items-center gap-2 font-semibold text-primary">
+                  <FileText className="h-4 w-4" />
+                  Resumo Financeiro
+                </h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Subtotal:</span>
+                    <span>{brl(selectedOrder.subtotal)}</span>
+                  </div>
+                  {selectedOrder.desconto > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Desconto{selectedOrder.cupom ? ` (${selectedOrder.cupom})` : ""}:</span>
+                      <span>-{brl(selectedOrder.desconto)}</span>
+                    </div>
+                  )}
+                  {selectedOrder.taxa_entrega > 0 && (
+                    <div className="flex justify-between">
+                      <span>Taxa de entrega:</span>
+                      <span>{brl(selectedOrder.taxa_entrega)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t pt-2 font-display text-lg font-bold">
+                    <span>Total:</span>
+                    <span className="text-primary">{brl(selectedOrder.total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Observações */}
+              {selectedOrder.observacoes && (
+                <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+                  <h3 className="mb-2 flex items-center gap-2 font-semibold text-yellow-800">
+                    📝 Observações do Cliente
+                  </h3>
+                  <p className="text-sm text-yellow-900">{selectedOrder.observacoes}</p>
+                </div>
+              )}
+
+              {/* Status */}
+              {selectedOrder.status && (
+                <div className="rounded-xl border bg-muted/30 p-4">
+                  <h3 className="mb-2 font-semibold text-primary">Status do Pedido</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
+                    <span className="font-medium capitalize">{selectedOrder.status}</span>
+                    {selectedOrder.status_delivery && selectedOrder.status_delivery !== "pendente" && (
+                      <span className="ml-2 rounded bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                        {selectedOrder.status_delivery}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Ações */}
+              <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
+                <h3 className="font-semibold text-primary">Ações</h3>
+                {selectedOrder.tipo === "online" ? (
+                  <>
+                    <Button
+                      className="w-full bg-green-600 hover:bg-green-700 text-white"
+                      size="lg"
+                      onClick={() => {
+                        handleAceitarPedido(selectedOrder.id);
+                        setDetailSheetOpen(false);
+                      }}
+                    >
+                      <CheckCircle className="h-5 w-5 mr-2" />
+                      Aceitar Pedido
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                      size="lg"
+                      onClick={() => {
+                        openRejectDialog(selectedOrder.id, selectedOrder.tipo);
+                        setDetailSheetOpen(false);
+                      }}
+                    >
+                      <XOctagon className="h-5 w-5 mr-2" />
+                      Recusar Pedido
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      className="w-full"
+                      size="lg"
+                      onClick={() => {
+                        update(selectedOrder.id, selectedOrder.tipo, { status: "preparo" });
+                        setDetailSheetOpen(false);
+                      }}
+                    >
+                      <CheckCircle className="h-5 w-5 mr-2" />
+                      Iniciar Preparo
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                      size="lg"
+                      onClick={() => {
+                        openRejectDialog(selectedOrder.id, selectedOrder.tipo);
+                        setDetailSheetOpen(false);
+                      }}
+                    >
+                      <XOctagon className="h-5 w-5 mr-2" />
+                      Recusar Pedido
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
       )}
 
       {/* Diálogo de recusa */}

@@ -9,7 +9,6 @@ import { OrderStatusBadge } from "@/components/OrderStatusBadge";
 import { OrderSummary } from "@/components/OrderSummary";
 import { OrderTracker } from "@/components/OrderTracker";
 import { PixPaymentSection } from "@/components/PixPaymentSection";
-import { rememberOrder } from "@/hooks/useMyOrders";
 import { buscarPedidoOnline, expirarPedidoOnline } from "@/lib/online-order-api";
 import { errorMessage, isFinalStatus, orderCode } from "@/lib/online-order";
 
@@ -162,11 +161,6 @@ function PagamentoPage() {
     retry: 2,
   });
   const pedido = pedidoQ.data;
-  const encontrado = !!pedido;
-
-  useEffect(() => {
-    if (encontrado) rememberOrder(token);
-  }, [encontrado, token]);
 
   async function copiarLink() {
     try {

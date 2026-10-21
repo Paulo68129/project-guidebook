@@ -11,6 +11,8 @@ export type PedidoAlerta = {
   itens: { nome: string; quantidade: number; preco_unitario: number }[];
   total: number;
   created_at: string;
+  /** Origem do pedido: PDV, DELIVERY, LOJA ONLINE */
+  origem?: "PDV" | "DELIVERY" | "LOJA ONLINE";
 };
 
 export function beep() {
@@ -48,7 +50,7 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
         somRef.current = data?.som_alerta ?? true;
       });
 
-    // Assinar mudanças na tabela vendas via Supabase Realtime
+    // Canal unificado: escuta vendas (PDV) E pedidos_online (Loja Online)
     const ch = supabase
       .channel("loja-online-pedidos")
       .on(
@@ -76,21 +78,69 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
             itens: itens ?? [],
             total: Number(venda.total),
             created_at: venda.created_at,
+            origem: venda.tipo === "delivery" ? "DELIVERY" : "PDV",
           };
 
-          setAlerts((prev) => [pedido, ...prev].slice(0, 20)); // Manter últimos 20
+          setAlerts((prev) => [pedido, ...prev].slice(0, 20));
           setShowPanel(true);
 
-          // Tocar som de alerta
           if (somRef.current) {
             beep();
           }
 
-          // Invalidar queries
           qc.invalidateQueries({ queryKey: ["vendas"] });
           qc.invalidateQueries({ queryKey: ["ingredientes"] });
 
-          // Chamar callback se fornecido
+          onNotify?.(pedido);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "pedidos_online" },
+        async (payload) => {
+          const pedidoOnline = payload.new as {
+            id: string;
+            cliente: string;
+            total: number;
+            itens: any;
+            created_at: string;
+          };
+
+          // Normaliza os itens do pedido online
+          let itens: { nome: string; quantidade: number; preco_unitario: number }[] = [];
+          try {
+            const raw = typeof pedidoOnline.itens === "string"
+              ? JSON.parse(pedidoOnline.itens)
+              : pedidoOnline.itens;
+            if (Array.isArray(raw)) {
+              itens = raw.map((item: any) => ({
+                nome: item.nome ?? "Item",
+                quantidade: Number(item.quantidade) || 1,
+                preco_unitario: Number(item.preco_unitario) || 0,
+              }));
+            }
+          } catch {
+            // Se falhar, usa itens vazios
+          }
+
+          const pedido: PedidoAlerta = {
+            numero: 0, // pedidos_online não tem número sequencial
+            cliente: pedidoOnline.cliente ?? "Cliente",
+            itens,
+            total: Number(pedidoOnline.total),
+            created_at: pedidoOnline.created_at,
+            origem: "LOJA ONLINE",
+          };
+
+          setAlerts((prev) => [pedido, ...prev].slice(0, 20));
+          setShowPanel(true);
+
+          if (somRef.current) {
+            beep();
+          }
+
+          qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+
           onNotify?.(pedido);
         }
       )
@@ -151,7 +201,14 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
               </div>
             ) : (
               <div className="space-y-4">
-                {alerts.map((pedido) => (
+                {alerts.map((pedido) => {
+                  const origemBadge = pedido.origem === "LOJA ONLINE"
+                    ? { label: "Online", className: "bg-blue-100 text-blue-700" }
+                    : pedido.origem === "DELIVERY"
+                    ? { label: "Delivery", className: "bg-green-100 text-green-700" }
+                    : { label: "PDV", className: "bg-orange-100 text-orange-700" };
+
+                  return (
                   <div
                     key={`${pedido.numero}-${pedido.created_at}`}
                     className="rounded-xl border border-primary/30 bg-muted/30 p-4 transition hover:border-primary"
@@ -159,7 +216,12 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
                     <div className="mb-2 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Package className="h-4 w-4 text-primary" />
-                        <span className="font-semibold">Pedido #{pedido.numero}</span>
+                        <span className="font-semibold">
+                          {pedido.numero ? `Pedido #${pedido.numero}` : "Pedido Online"}
+                        </span>
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${origemBadge.className}`}>
+                          {origemBadge.label}
+                        </span>
                       </div>
                       <span className="text-xs text-muted-foreground">
                         {new Date(pedido.created_at).toLocaleTimeString("pt-BR", {
@@ -200,7 +262,8 @@ export function OrderBell({ onNotify }: { onNotify?: (pedido: PedidoAlerta) => v
                       </span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

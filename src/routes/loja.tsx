@@ -2,11 +2,9 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Minus, Plus, Trash2, ShoppingCart, Store, Clock3, PackageSearch } from "lucide-react";
+import { Minus, Plus, Trash2, ShoppingCart, Store, Clock3 } from "lucide-react";
 import { brl, configQ, produtosQ } from "@/lib/data";
 import { lojaAberta } from "@/components/Clock";
-import { countActive, MyOrdersBanner, MyOrdersSheet, useTrackedOrders } from "@/components/MyOrders";
-import { rememberOrder } from "@/hooks/useMyOrders";
 import { enviarPedidoOnline } from "@/lib/online-order-api";
 import { errorMessage } from "@/lib/online-order";
 import { Button } from "@/components/ui/button";
@@ -47,9 +45,6 @@ function LojaOnline() {
   const [cliente, setCliente] = useState({ nome: "", telefone: "", endereco: "" });
   const [busy, setBusy] = useState(false);
   const [showCart, setShowCart] = useState(false);
-  const [showOrders, setShowOrders] = useState(false);
-  const meusPedidos = useTrackedOrders();
-  const pedidosAtivos = countActive(meusPedidos);
 
   const ativos = produtos?.filter((p) => p.ativo) ?? [];
   const cats = [...new Set(ativos.map((p) => p.categoria))];
@@ -95,7 +90,6 @@ function LojaOnline() {
         telefone: cliente.telefone,
       });
 
-      rememberOrder(token);
       toast.success("Pedido enviado! Pague com PIX para liberarmos o preparo.");
       setCart({});
       setCliente({ nome: "", telefone: "", endereco: "" });
@@ -131,21 +125,6 @@ function LojaOnline() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setShowOrders(true)}
-              className="relative flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm hover:border-primary sm:px-4"
-            >
-              <PackageSearch className="h-5 w-5" aria-hidden="true" />
-              {pedidosAtivos > 0 && (
-                <span className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-success text-xs font-bold text-background">
-                  {pedidosAtivos}
-                  <span className="sr-only"> pedidos em andamento</span>
-                </span>
-              )}
-              <span className="hidden sm:inline">Meus pedidos</span>
-              <span className="sr-only sm:hidden">Meus pedidos</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setShowCart(!showCart)}
               className="relative flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm hover:border-primary sm:px-4"
             >
@@ -161,10 +140,7 @@ function LojaOnline() {
         </div>
       </header>
 
-      <MyOrdersSheet orders={meusPedidos} open={showOrders} onOpenChange={setShowOrders} />
-
       <main className="mx-auto max-w-6xl px-6 py-8">
-        <MyOrdersBanner orders={meusPedidos} onOpenAll={() => setShowOrders(true)} />
 
         {/* Hero */}
         <div className="mb-10 text-center">
