@@ -25,29 +25,36 @@ export const Route = createFileRoute("/_authenticated/delivery")({
   component: Delivery,
 });
 
+// Fluxo unificado de 6 etapas para todos os tipos de pedido
 const cols = [
-  { s: "recents", t: "Pedidos Recentes", next: null, btn: "" },
-  { s: "preparo", t: "Preparando Pedido", next: "saiu", btn: "Saiu p/ entrega" },
-  { s: "saiu", t: "Saiu para Entrega", next: "entregue", btn: "Marcar entregue" },
-  { s: "entregue", t: "Entregue", next: null, btn: "" },
+  { s: "pendente", t: "📥 Pedidos Recentes", next: "recebido", btn: "Receber Pedido" },
+  { s: "recebido", t: "✅ Pedido Recebido", next: "preparando", btn: "Preparando Pedido" },
+  { s: "preparando", t: "👨‍🍳 Preparando", next: "pronto", btn: "Pedido Pronto" },
+  { s: "pronto", t: "📦 Pronto", next: "em_entrega", btn: "Saiu p/ Entrega" },
+  { s: "em_entrega", t: "🚚 Saiu p/ Entrega", next: "finalizado", btn: "Finalizar" },
+  { s: "finalizado", t: "✅ Entregue", next: null, btn: "" },
 ] as const;
 
-// Mapeia status de pedidos_online para status do delivery
-// Pedidos com status_delivery='pendente' vão para "Pedidos Recentes"
-// Pedidos aceitos (status_delivery='aceito') vão para a coluna correspondente ao status
+// Mapeia status de pedidos_online para colunas do delivery
 const onlineStatusMap: Record<string, string> = {
-  "aguardando_pagamento": "recents",
-  "pago": "recents",
-  "novo": "recents",
-  "preparo": "preparo",
-  "saiu": "saiu",
-  "entregue": "entregue",
+  "pendente": "pendente",
+  "aguardando_pagamento": "pendente",
+  "pago": "pendente",
+  "novo": "pendente",
+  "recebido": "recebido",
+  "preparando": "preparando",
+  "preparo": "preparando",
+  "pronto": "pronto",
+  "em_entrega": "em_entrega",
+  "saiu": "em_entrega",
+  "finalizado": "finalizado",
+  "entregue": "finalizado",
   "cancelado": "cancelado",
 };
 
-// Verifica se um pedido online deve ir para "Pedidos Recentes"
-function shouldGoToRecents(p: any): boolean {
-  return p.status_delivery === "pendente" && (p.status === "aguardando_pagamento" || p.status === "novo");
+// Verifica se um pedido online está pendente (aguardando aceitação)
+function isPedidoPendente(p: any): boolean {
+  return p.status_delivery === "pendente" || p.status === "pendente" || p.status === "aguardando_pagamento" || p.status === "novo";
 }
 
 function Delivery() {
@@ -97,8 +104,8 @@ function Delivery() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pedidos_online")
-        .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, status, motoboy_id, created_at, cupom, status_delivery, motivo_recusa, aceito_em, recusado_em, entregue_em, observacoes")
-        .in("status", ["aguardando_pagamento", "pago", "novo", "preparo", "saiu", "entregue"])
+        .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, status, motoboy_id, created_at, cupom, status_delivery, motivo_recusa, aceito_em, recusado_em, entregue_em, observacoes, origem")
+        .in("status", ["pendente", "aguardando_pagamento", "pago", "novo", "recebido", "preparando", "preparo", "pronto", "em_entrega", "saiu", "finalizado", "entregue"])
         .order("created_at", { ascending: false });
       if (error) {
         console.error("[Delivery] Erro ao buscar pedidos online:", error);
@@ -209,6 +216,7 @@ function Delivery() {
     const result: Array<{
       id: string;
       tipo: "venda" | "online";
+      origem: string;
       cliente: string;
       telefone: string;
       endereco: string;
@@ -230,14 +238,15 @@ function Delivery() {
       entregue_em?: string | null;
     }> = [];
 
-    // Adiciona vendas do tipo delivery (não vão para "Pedidos Recentes")
-    if (status !== "cancelado" && status !== "recents") {
+    // Adiciona vendas do tipo delivery e balcão
+    if (status !== "cancelado") {
       result.push(
         ...pedidosVendas
           .filter((v) => v.status === status)
           .map((v) => ({
             id: v.id,
             tipo: "venda" as const,
+            origem: v.tipo === "delivery" ? "Delivery" : "Balcão",
             cliente: v.cliente || "",
             telefone: v.telefone || "",
             endereco: v.endereco || "",
@@ -259,18 +268,15 @@ function Delivery() {
     // Adiciona pedidos online
     if (pedidosOnline && status !== "cancelado") {
       const filtered = pedidosOnline.filter((p) => {
-        // Pedidos Recentes: apenas pedidos com status_delivery='pendente'
-        if (status === "recents") {
-          return shouldGoToRecents(p);
-        }
-        // Para outras colunas, usa o mapeamento normal, mas exclui os que estão em "Pedidos Recentes"
-        if (shouldGoToRecents(p)) return false;
-        return onlineStatusMap[p.status] === status;
+        const mapped = onlineStatusMap[p.status];
+        if (!mapped) return false;
+        return mapped === status;
       });
       result.push(
         ...filtered.map((p) => ({
           id: p.id,
           tipo: "online" as const,
+          origem: "Loja Online",
           cliente: p.cliente,
           telefone: p.telefone,
           endereco: p.endereco,
@@ -302,7 +308,7 @@ function Delivery() {
     const { error } = await supabase.from("vendas").update(patch).eq("id", id);
     if (error) { toast.error(error.message); return; }
 
-    if (patch.status === "entregue") {
+    if (patch.status === "finalizado") {
       const { data: updatedVenda, error: fetchError } = await supabase
         .from("vendas")
         .select("*, venda_itens(*)")
@@ -319,8 +325,8 @@ function Delivery() {
 
   async function updateOnline(id: string, patch: { status?: string; motoboy_id?: string | null }) {
     let newStatus = patch.status;
-    // Se o status mudou para "entregue", mostra a nota fiscal
-    if (patch.status === "entregue") {
+    // Se o status mudou para "finalizado", mostra a nota fiscal
+    if (patch.status === "finalizado") {
       const pedido = pedidosOnline?.find((p) => p.id === id);
       if (pedido) {
         setNfceOnline(pedido);
@@ -387,9 +393,9 @@ function Delivery() {
     }
   }
 
-  // Conta pedidos pendentes (aguardando pagamento ou novos)
+  // Conta pedidos pendentes (aguardando aceitação)
   const pedidosPendentes = pedidosOnline?.filter(p => 
-    p.status === "aguardando_pagamento" || p.status === "novo"
+    p.status === "pendente" || p.status === "aguardando_pagamento" || p.status === "novo"
   ).length ?? 0;
 
   // Confirmar pagamento recebido - registra a venda no financeiro e dá baixa no estoque
@@ -478,7 +484,7 @@ function Delivery() {
 
   // Exportar entregas para CSV
   function exportarEntregasCSV() {
-    const entregas = getPedidosByColumn("entregue");
+    const entregas = getPedidosByColumn("finalizado");
     if (entregas.length === 0) {
       toast.error("Nenhuma entrega concluída para exportar");
       return;
@@ -564,7 +570,7 @@ function Delivery() {
   // Excluir todas as entregas concluídas
   async function handleExcluirTodasEntregas() {
     try {
-      const entregasOnline = pedidosOnline?.filter(p => p.status === "entregue") || [];
+      const entregasOnline = pedidosOnline?.filter(p => p.status === "finalizado" || p.status === "entregue") || [];
       
       if (entregasOnline.length === 0) {
         toast.info("Nenhuma entrega online concluída para excluir");
@@ -599,7 +605,7 @@ function Delivery() {
   }
 
   // Conta entregas concluídas
-  const entregasConcluidas = getPedidosByColumn("entregue").length;
+  const entregasConcluidas = getPedidosByColumn("finalizado").length;
 
   return (
     <div>
@@ -649,29 +655,28 @@ function Delivery() {
           Excluir Entregas Concluídas
         </Button>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {cols.map((c) => {
           const list = getPedidosByColumn(c.s);
           return (
             <div key={c.s} className="rounded-xl border bg-muted/30 p-3">
               <h2 className="mb-3 font-display font-semibold">{c.t} <span className="text-muted-foreground">({list.length})</span></h2>
               <div className="space-y-3">
-                {list.slice(0, c.s === "entregue" ? 10 : 100).map((p) => (
+                {list.slice(0, c.s === "finalizado" ? 10 : 100).map((p) => (
                   <div
                     key={p.id}
                     className="rounded-lg border bg-card p-3 text-sm cursor-pointer hover:border-primary hover:shadow-md transition"
-                    onClick={() => c.s === "novo" && openOrderDetail(p)}
+                    onClick={() => openOrderDetail(p)}
                   >
                     <div className="flex justify-between font-semibold">
                       <span>
                         {p.tipo === "venda" && p.numero ? `#${p.numero} ` : ""}
                         {p.cliente}
-                        {p.tipo === "online" && (
-                          <span className="ml-1 inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">LOJA ONLINE</span>
-                        )}
-                        {p.tipo === "venda" && (
-                          <span className="ml-1 inline-block rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700">PDV</span>
-                        )}
+                        <span className={`ml-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                          p.origem === 'Loja Online' ? 'bg-blue-100 text-blue-700' :
+                          p.origem === 'Delivery' ? 'bg-green-100 text-green-700' :
+                          'bg-orange-100 text-orange-700'
+                        }`}>{p.origem}</span>
                       </span>
                       <span>{brl(p.total)}</span>
                     </div>
@@ -728,13 +733,13 @@ function Delivery() {
                         </div>
                       </div>
                     )}
-                    {c.s !== "entregue" && (
+                    {c.s !== "finalizado" && p.tipo !== "online" && (
                       <select className="mt-2 w-full rounded border bg-background p-1 text-xs" value={p.motoboy_id ?? ""} onClick={(e) => e.stopPropagation()} onChange={(e) => update(p.id, p.tipo, { motoboy_id: e.target.value || null })}>
                         <option value="">Sem motoboy</option>
                         {motoboys.filter((m) => m.ativo).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
                       </select>
                     )}
-                    {c.s === "recents" && p.tipo === "online" && (
+                    {c.s === "pendente" && p.tipo === "online" && (
                       <div className="mt-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
                         {/* Aceitar/Recusar pedido - principal ação em Pedidos Recentes */}
                         <div className="flex gap-2">
@@ -758,13 +763,13 @@ function Delivery() {
                         </div>
                       </div>
                     )}
-                    {c.next && (
+                    {c.next && c.s !== "pendente" && (
                       <div className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
                         <Button size="sm" className="flex-1" onClick={() => update(p.id, p.tipo, { status: c.next! })}>{c.btn}</Button>
                         <Button size="sm" variant="ghost" onClick={() => update(p.id, p.tipo, { status: "cancelado" })}>Cancelar</Button>
                       </div>
                     )}
-                    {c.s === "entregue" && (
+                    {c.s === "finalizado" && (
                       <div className="mt-2" onClick={(e) => e.stopPropagation()}>
                         <Button
                           size="sm"

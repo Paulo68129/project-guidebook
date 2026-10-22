@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { consultarPedidoOnline } from "@/lib/loja-online.functions";
 import { brl } from "@/lib/data";
 import { expirarPedidoOnline } from "@/lib/online-order-api";
-import { ArrowLeft, Clock, CheckCircle, ChefHat, Truck, Package, Search, Loader2, MapPin, User, FileText, Printer, AlertTriangle, XOctagon, Star } from "lucide-react";
+import { ArrowLeft, Clock, CheckCircle, ChefHat, Truck, Package, PackageCheck, Search, Loader2, MapPin, User, FileText, Printer, AlertTriangle, XOctagon, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -45,17 +45,29 @@ interface PedidoOnline {
 
 // Mapeamento de status para exibição
 const statusConfig: Record<string, { label: string; icon: any; color: string; bgColor: string }> = {
-  aguardando_pagamento: {
-    label: "Pedido Recebido",
+  pendente: {
+    label: "Novo Pedido",
     icon: Clock,
-    color: "text-blue-600",
-    bgColor: "bg-blue-100",
+    color: "text-yellow-600",
+    bgColor: "bg-yellow-100",
   },
-  pago: {
+  aguardando_pagamento: {
+    label: "Novo Pedido",
+    icon: Clock,
+    color: "text-yellow-600",
+    bgColor: "bg-yellow-100",
+  },
+  recebido: {
     label: "Pedido Recebido",
     icon: CheckCircle,
     color: "text-blue-600",
     bgColor: "bg-blue-100",
+  },
+  preparando: {
+    label: "Preparando Pedido",
+    icon: ChefHat,
+    color: "text-orange-600",
+    bgColor: "bg-orange-100",
   },
   preparo: {
     label: "Preparando Pedido",
@@ -63,11 +75,29 @@ const statusConfig: Record<string, { label: string; icon: any; color: string; bg
     color: "text-orange-600",
     bgColor: "bg-orange-100",
   },
+  pronto: {
+    label: "Pedido Pronto",
+    icon: PackageCheck,
+    color: "text-cyan-600",
+    bgColor: "bg-cyan-100",
+  },
+  em_entrega: {
+    label: "Saiu para Entrega",
+    icon: Truck,
+    color: "text-purple-600",
+    bgColor: "bg-purple-100",
+  },
   saiu: {
     label: "Saiu para Entrega",
     icon: Truck,
     color: "text-purple-600",
     bgColor: "bg-purple-100",
+  },
+  finalizado: {
+    label: "Entregue",
+    icon: Package,
+    color: "text-green-600",
+    bgColor: "bg-green-100",
   },
   entregue: {
     label: "Entregue",
@@ -84,11 +114,24 @@ const statusConfig: Record<string, { label: string; icon: any; color: string; bg
 };
 
 // Ordem dos status na timeline
-const statusOrder = ["aguardando_pagamento", "preparo", "saiu", "entregue"];
+const statusOrder = ["pendente", "recebido", "preparando", "pronto", "em_entrega", "finalizado"];
 
-// Verifica se o pedido expirou (mais de 5 minutos aguardando pagamento)
+// Mapeia status antigos para o novo padrão
+function normalizeStatusForDisplay(status: string): string {
+  const map: Record<string, string> = {
+    "aguardando_pagamento": "pendente",
+    "pago": "pendente",
+    "novo": "pendente",
+    "preparo": "preparando",
+    "saiu": "em_entrega",
+    "entregue": "finalizado",
+  };
+  return map[status] || status;
+}
+
+// Verifica se o pedido expirou (mais de 5 minutos pendente)
 function isPedidoExpirado(pedido: PedidoOnline): boolean {
-  if (pedido.status !== "aguardando_pagamento") return false;
+  if (pedido.status !== "aguardando_pagamento" && pedido.status !== "pendente") return false;
   const criadoEm = new Date(pedido.created_at).getTime();
   const agora = Date.now();
   return (agora - criadoEm) > PAYMENT_TIMEOUT_MINUTES * 60 * 1000;
@@ -237,8 +280,8 @@ function RastrearPage() {
     return () => clearInterval(interval);
   }, [pedido, searchToken]);
 
-  // Calcula o índice do status atual na timeline
-  const currentStatusIndex = pedido ? statusOrder.indexOf(pedido.status) : -1;
+  // Calcula o índice do status atual na timeline (usando status normalizado)
+  const currentStatusIndex = pedido ? statusOrder.indexOf(normalizeStatusForDisplay(pedido.status)) : -1;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -354,20 +397,26 @@ function RastrearPage() {
             <>
             <div className="mb-6 rounded-xl border bg-white p-6 shadow-sm">
               <div className="flex items-center gap-4">
-                <div className={`flex h-16 w-16 items-center justify-center rounded-full ${statusConfig[pedido.status]?.bgColor || 'bg-gray-100'}`}>
-                  {(() => {
-                    const Icon = statusConfig[pedido.status]?.icon || Clock;
-                    return <Icon className={`h-8 w-8 ${statusConfig[pedido.status]?.color || 'text-gray-600'}`} />;
-                  })()}
-                </div>
-                <div className="flex-1">
-                  <h2 className="text-xl font-bold text-gray-900">
-                    {statusConfig[pedido.status]?.label || pedido.status}
-                  </h2>
-                  <p className="text-sm text-gray-500">
-                    Pedido de {pedido.cliente}
-                  </p>
-                </div>
+                {(() => {
+                  const normalized = normalizeStatusForDisplay(pedido.status);
+                  const config = statusConfig[normalized] || statusConfig[pedido.status];
+                  const Icon = config?.icon || Clock;
+                  return (
+                    <>
+                    <div className={`flex h-16 w-16 items-center justify-center rounded-full ${config?.bgColor || 'bg-gray-100'}`}>
+                      <Icon className={`h-8 w-8 ${config?.color || 'text-gray-600'}`} />
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-xl font-bold text-gray-900">
+                        {config?.label || pedido.status}
+                      </h2>
+                      <p className="text-sm text-gray-500">
+                        Pedido de {pedido.cliente}
+                      </p>
+                    </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 

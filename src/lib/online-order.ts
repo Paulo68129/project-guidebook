@@ -1,50 +1,55 @@
 import { z } from "zod";
 
 export const ORDER_STATUSES = [
-  "aguardando_pagamento",
-  "pago",
-  "novo",
-  "preparo",
-  "saiu",
-  "entregue",
+  "pendente",
+  "recebido",
+  "preparando",
+  "pronto",
+  "em_entrega",
+  "finalizado",
   "cancelado",
   "expirado",
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export const STATUS_LABEL: Record<OrderStatus, string> = {
-  aguardando_pagamento: "Pedido Recebido",
-  pago: "Pedido Recebido",
-  novo: "Pedido Recebido",
-  preparo: "Preparando Pedido",
-  saiu: "Saiu para Entrega",
-  entregue: "Entregue",
+  pendente: "Novo Pedido",
+  recebido: "Pedido Recebido",
+  preparando: "Preparando Pedido",
+  pronto: "Pedido Pronto",
+  em_entrega: "Saiu para Entrega",
+  finalizado: "Entregue",
   cancelado: "Cancelado",
   expirado: "Tempo de pagamento expirado",
 };
 
 export const NEXT_STATUS: Record<OrderStatus, { status: OrderStatus; label: string } | null> = {
-  aguardando_pagamento: { status: "preparo", label: "Aceitar pedido" },
-  pago: { status: "preparo", label: "Aceitar pedido" },
-  novo: { status: "preparo", label: "Aceitar pedido" },
-  preparo: { status: "saiu", label: "Saiu para entrega" },
-  saiu: { status: "entregue", label: "Marcar entregue" },
-  entregue: null,
+  pendente: { status: "recebido", label: "Receber Pedido" },
+  recebido: { status: "preparando", label: "Preparando Pedido" },
+  preparando: { status: "pronto", label: "Pedido Pronto" },
+  pronto: { status: "em_entrega", label: "Saiu para Entrega" },
+  em_entrega: { status: "finalizado", label: "Finalizar Pedido" },
+  finalizado: null,
   cancelado: null,
   expirado: null,
 };
 
 export function isFinalStatus(status: OrderStatus) {
-  return status === "entregue" || status === "cancelado" || status === "expirado";
+  return status === "finalizado" || status === "cancelado" || status === "expirado";
 }
 
 export function normalizeStatus(value: unknown): OrderStatus {
   const s = String(value ?? "").trim().toLowerCase();
   if ((ORDER_STATUSES as readonly string[]).includes(s)) return s as OrderStatus;
-  if (s === "confirmado") return "pago";
-  if (s === "em_preparo") return "preparo";
-  if (s === "saiu_para_entrega" || s === "em_rota") return "saiu";
-  return "aguardando_pagamento";
+  // Mapeia status antigos para o novo padrão
+  if (s === "aguardando_pagamento" || s === "pago" || s === "novo" || s === "confirmado") return "pendente";
+  if (s === "recebido") return "recebido";
+  if (s === "preparo" || s === "em_preparo" || s === "preparando") return "preparando";
+  if (s === "pronto") return "pronto";
+  if (s === "saiu" || s === "saiu_para_entrega" || s === "em_rota" || s === "em_entrega") return "em_entrega";
+  if (s === "entregue" || s === "finalizado" || s === "concluido") return "finalizado";
+  if (s === "cancelado") return "cancelado";
+  return "pendente";
 }
 
 export type OnlineItem = { produto_id: string; nome: string; descricao: string | null; quantidade: number; preco_unitario: number };
