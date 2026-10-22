@@ -3,6 +3,7 @@ import { z } from "zod";
 export const ORDER_STATUSES = [
   "aguardando_pagamento",
   "pago",
+  "novo",
   "preparo",
   "saiu",
   "entregue",
@@ -13,7 +14,8 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export const STATUS_LABEL: Record<OrderStatus, string> = {
   aguardando_pagamento: "Pedido Recebido",
-  pago: "Pagamento confirmado",
+  pago: "Pedido Recebido",
+  novo: "Pedido Recebido",
   preparo: "Preparando Pedido",
   saiu: "Saiu para Entrega",
   entregue: "Entregue",
@@ -22,8 +24,9 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
 };
 
 export const NEXT_STATUS: Record<OrderStatus, { status: OrderStatus; label: string } | null> = {
-  aguardando_pagamento: { status: "pago", label: "Confirmar pagamento" },
-  pago: { status: "preparo", label: "Iniciar preparo" },
+  aguardando_pagamento: { status: "preparo", label: "Aceitar pedido" },
+  pago: { status: "preparo", label: "Aceitar pedido" },
+  novo: { status: "preparo", label: "Aceitar pedido" },
   preparo: { status: "saiu", label: "Saiu para entrega" },
   saiu: { status: "entregue", label: "Marcar entregue" },
   entregue: null,
@@ -38,7 +41,7 @@ export function isFinalStatus(status: OrderStatus) {
 export function normalizeStatus(value: unknown): OrderStatus {
   const s = String(value ?? "").trim().toLowerCase();
   if ((ORDER_STATUSES as readonly string[]).includes(s)) return s as OrderStatus;
-  if (s === "novo" || s === "confirmado") return "pago";
+  if (s === "confirmado") return "pago";
   if (s === "em_preparo") return "preparo";
   if (s === "saiu_para_entrega" || s === "em_rota") return "saiu";
   return "aguardando_pagamento";

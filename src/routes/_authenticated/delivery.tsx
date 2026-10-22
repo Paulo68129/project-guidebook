@@ -27,7 +27,6 @@ export const Route = createFileRoute("/_authenticated/delivery")({
 
 const cols = [
   { s: "recents", t: "Pedidos Recentes", next: null, btn: "" },
-  { s: "novo", t: "Pedido Recebido", next: "preparo", btn: "Iniciar preparo" },
   { s: "preparo", t: "Preparando Pedido", next: "saiu", btn: "Saiu p/ entrega" },
   { s: "saiu", t: "Saiu para Entrega", next: "entregue", btn: "Marcar entregue" },
   { s: "entregue", t: "Entregue", next: null, btn: "" },
@@ -35,10 +34,10 @@ const cols = [
 
 // Mapeia status de pedidos_online para status do delivery
 // Pedidos com status_delivery='pendente' vão para "Pedidos Recentes"
-// Pedidos aceitos (status_delivery='aceito') com status='pago' vão para "Pedido Recebido"
+// Pedidos aceitos (status_delivery='aceito') vão para a coluna correspondente ao status
 const onlineStatusMap: Record<string, string> = {
   "aguardando_pagamento": "recents",
-  "pago": "novo",
+  "pago": "recents",
   "novo": "recents",
   "preparo": "preparo",
   "saiu": "saiu",
@@ -99,7 +98,7 @@ function Delivery() {
       const { data, error } = await supabase
         .from("pedidos_online")
         .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, status, motoboy_id, created_at, cupom, status_delivery, motivo_recusa, aceito_em, recusado_em, entregue_em, observacoes")
-        .in("status", ["aguardando_pagamento", "pago", "novo", "preparo", "saiu"])
+        .in("status", ["aguardando_pagamento", "pago", "novo", "preparo", "saiu", "entregue"])
         .order("created_at", { ascending: false });
       if (error) {
         console.error("[Delivery] Erro ao buscar pedidos online:", error);
@@ -650,7 +649,7 @@ function Delivery() {
           Excluir Entregas Concluídas
         </Button>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {cols.map((c) => {
           const list = getPedidosByColumn(c.s);
           return (
@@ -759,37 +758,7 @@ function Delivery() {
                         </div>
                       </div>
                     )}
-                    {c.s === "novo" && p.tipo === "online" && (
-                      <div className="mt-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
-                        {/* Confirmação de pagamento para pedidos já aceitos */}
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                            onClick={() => openPaymentConfirmDialog(p.id, p.tipo)}
-                          >
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            Confirmar Pagamento
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="flex-1 text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
-                            onClick={() => openPaymentConfirmDialog(p.id, p.tipo)}
-                          >
-                            <XOctagon className="h-4 w-4 mr-1" />
-                            Pagamento Não Recebido
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    {c.next && c.s !== "novo" && (
-                      <div className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
-                        <Button size="sm" className="flex-1" onClick={() => update(p.id, p.tipo, { status: c.next! })}>{c.btn}</Button>
-                        <Button size="sm" variant="ghost" onClick={() => update(p.id, p.tipo, { status: "cancelado" })}>Cancelar</Button>
-                      </div>
-                    )}
-                    {c.next && c.s === "novo" && p.tipo === "venda" && (
+                    {c.next && (
                       <div className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
                         <Button size="sm" className="flex-1" onClick={() => update(p.id, p.tipo, { status: c.next! })}>{c.btn}</Button>
                         <Button size="sm" variant="ghost" onClick={() => update(p.id, p.tipo, { status: "cancelado" })}>Cancelar</Button>

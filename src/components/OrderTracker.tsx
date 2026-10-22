@@ -6,7 +6,7 @@ type Step = { label: string; description: string; icon: LucideIcon };
 
 const STEPS: Step[] = [
   { label: "Pedido Recebido", description: "Seu pedido foi recebido e já está sendo preparado.", icon: ReceiptText },
-  { label: "Preparando Pedido", description: "Seu pedido está sendo preparado.", icon: ChefHat },
+  { label: "Preparando Pedido", description: "Seu pedido está sendo preparado com carinho.", icon: ChefHat },
   { label: "Saiu para Entrega", description: "O entregador está a caminho.", icon: Bike },
   { label: "Entregue", description: "Pedido entregue. Bom apetite!", icon: House },
 ];
@@ -14,6 +14,7 @@ const STEPS: Step[] = [
 const CURRENT_STEP: Record<Exclude<OrderStatus, "cancelado" | "expirado">, number> = {
   aguardando_pagamento: 0,
   pago: 0,
+  novo: 0,
   preparo: 1,
   saiu: 2,
   entregue: 3,
