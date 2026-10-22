@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { consultarPedidoOnline } from "@/lib/loja-online.functions";
 import { brl } from "@/lib/data";
 import { expirarPedidoOnline } from "@/lib/online-order-api";
-import { ArrowLeft, Clock, CheckCircle, ChefHat, Truck, Package, PackageCheck, Search, Loader2, MapPin, User, FileText, Printer, AlertTriangle, XOctagon, Star } from "lucide-react";
+import { ArrowLeft, Clock, CheckCircle, ChefHat, Truck, Package, PackageCheck, Search, Loader2, MapPin, User, FileText, Printer, AlertTriangle, XOctagon, Star, CreditCard, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -43,10 +43,62 @@ interface PedidoOnline {
   updated_at?: string;
 }
 
+// Mensagens de notificação para cada status
+const statusMessages: Record<string, { title: string; message: string }> = {
+  pendente: {
+    title: "📦 Pedido Recebido",
+    message: "Seu pedido foi recebido e está aguardando pagamento.",
+  },
+  aguardando_pagamento: {
+    title: "💳 Aguardando Pagamento",
+    message: "Realize o pagamento PIX para confirmar seu pedido.",
+  },
+  pago: {
+    title: "✅ Pagamento Confirmado!",
+    message: "Seu pagamento foi confirmado! Aguardando início da preparação.",
+  },
+  recebido: {
+    title: "👨‍🍳 Pedido Aceito",
+    message: "Seu pedido foi aceito e já está sendo preparado pela equipe.",
+  },
+  preparando: {
+    title: "🍕 Preparando Pedido",
+    message: "Sua equipe está preparando seu pedido com carinho!",
+  },
+  preparo: {
+    title: "🍕 Preparando Pedido",
+    message: "Sua equipe está preparando seu pedido com carinho!",
+  },
+  pronto: {
+    title: "📦 Pedido Pronto",
+    message: "Seu pedido está pronto e será entregue em breve!",
+  },
+  em_entrega: {
+    title: "🛵 Saiu para Entrega",
+    message: "Seu pedido saiu para entrega! Em breve estará com você.",
+  },
+  saiu: {
+    title: "🛵 Saiu para Entrega",
+    message: "Seu pedido saiu para entrega! Em breve estará com você.",
+  },
+  finalizado: {
+    title: "✅ Pedido Entregue",
+    message: "Seu pedido foi entregue com sucesso! Bom apetite!",
+  },
+  entregue: {
+    title: "✅ Pedido Entregue",
+    message: "Seu pedido foi entregue com sucesso! Bom apetite!",
+  },
+  cancelado: {
+    title: "❌ Pedido Cancelado",
+    message: "Seu pedido foi cancelado.",
+  },
+};
+
 // Mapeamento de status para exibição
 const statusConfig: Record<string, { label: string; icon: any; color: string; bgColor: string }> = {
   pendente: {
-    label: "Novo Pedido",
+    label: "Aguardando Pagamento",
     icon: Clock,
     color: "text-yellow-600",
     bgColor: "bg-yellow-100",
@@ -59,7 +111,7 @@ const statusConfig: Record<string, { label: string; icon: any; color: string; bg
   },
   pago: {
     label: "Pagamento Confirmado",
-    icon: CheckCircle,
+    icon: CreditCard,
     color: "text-green-600",
     bgColor: "bg-green-100",
   },
@@ -119,14 +171,13 @@ const statusConfig: Record<string, { label: string; icon: any; color: string; bg
   },
 };
 
-// Ordem dos status na timeline
-const statusOrder = ["pendente", "recebido", "preparando", "pronto", "em_entrega", "finalizado"];
+// Ordem dos status na timeline (7 etapas)
+const statusOrder = ["pendente", "pago", "recebido", "preparando", "pronto", "em_entrega", "finalizado"];
 
 // Mapeia status antigos para o novo padrão
 function normalizeStatusForDisplay(status: string): string {
   const map: Record<string, string> = {
     "aguardando_pagamento": "pendente",
-    "pago": "pendente",
     "novo": "pendente",
     "preparo": "preparando",
     "saiu": "em_entrega",
@@ -149,6 +200,7 @@ function RastrearPage() {
   const [pedido, setPedido] = useState<PedidoOnline | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showNFCE, setShowNFCE] = useState(false);
+  const [previousStatus, setPreviousStatus] = useState<string | null>(null);
 
   // Assinatura Realtime para atualizar status instantaneamente quando o PDV atualizar
   useEffect(() => {
@@ -163,7 +215,23 @@ function RastrearPage() {
           table: "pedidos_online",
           filter: `id=eq.${pedido.id}`,
         },
-        async () => {
+        async (payload) => {
+          const newStatus = (payload.new as any).status;
+          const oldStatus = (payload.old as any).status;
+          
+          // Se o status mudou, mostra notificação com mensagem personalizada
+          if (newStatus !== oldStatus) {
+            const msg = statusMessages[newStatus];
+            if (msg) {
+              toast.success(msg.title, {
+                description: msg.message,
+                duration: 8000,
+                position: "top-center",
+              });
+            }
+            setPreviousStatus(newStatus);
+          }
+          
           if (searchToken) {
             handleSearch(searchToken);
           }
@@ -269,12 +337,17 @@ function RastrearPage() {
           toast.error("O tempo de pagamento deste pedido expirou.");
         }
 
-        // Se o status mudou, notifica o usuário
+        // Se o status mudou, mostra notificação com mensagem personalizada
         if (updatedPedido.status !== pedido.status) {
-          const config = statusConfig[updatedPedido.status];
-          if (config) {
-            toast.success(`Status atualizado: ${config.label}`);
+          const msg = statusMessages[updatedPedido.status];
+          if (msg) {
+            toast.success(msg.title, {
+              description: msg.message,
+              duration: 8000,
+              position: "top-center",
+            });
           }
+          setPreviousStatus(updatedPedido.status);
         }
 
         setPedido(updatedPedido);
@@ -401,6 +474,27 @@ function RastrearPage() {
             {/* Status atual - só mostra se não expirou e não foi recusado */}
             {!(pedido.status === "cancelado" && pedido.status_pagamento === "expirado") && pedido.status_delivery !== "recusado" && (
             <>
+            {/* Banner de notificação do status atual */}
+            {(() => {
+              const msg = statusMessages[pedido.status];
+              if (!msg) return null;
+              return (
+                <div className={`mb-6 rounded-xl border-2 p-6 text-center ${
+                  pedido.status === "pago" ? "border-green-300 bg-green-50" :
+                  pedido.status === "recebido" ? "border-blue-300 bg-blue-50" :
+                  pedido.status === "preparando" || pedido.status === "preparo" ? "border-orange-300 bg-orange-50" :
+                  pedido.status === "pronto" ? "border-cyan-300 bg-cyan-50" :
+                  pedido.status === "em_entrega" || pedido.status === "saiu" ? "border-purple-300 bg-purple-50" :
+                  pedido.status === "finalizado" || pedido.status === "entregue" ? "border-green-300 bg-green-50" :
+                  "border-gray-200 bg-gray-50"
+                }`}>
+                  <Bell className="mx-auto h-8 w-8 text-gray-600 mb-2" />
+                  <h2 className="text-lg font-bold text-gray-900">{msg.title}</h2>
+                  <p className="mt-1 text-sm text-gray-600">{msg.message}</p>
+                </div>
+              );
+            })()}
+
             <div className="mb-6 rounded-xl border bg-white p-6 shadow-sm">
               <div className="flex items-center gap-4">
                 {(() => {

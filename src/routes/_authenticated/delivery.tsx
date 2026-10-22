@@ -14,7 +14,7 @@ import { OnlineOrderNFCE } from "@/components/OnlineOrderNFCE";
 import type { OnlineOrder } from "@/lib/online-order";
 import { useNewOrderSound } from "@/hooks/useNewOrderSound";
 import { useOnlineOrdersRealtime } from "@/hooks/useOnlineOrdersRealtime";
-import { aceitarPedido, recusarPedido } from "@/lib/online-order-api";
+import { aceitarPedido, recusarPedido, confirmarPagamento } from "@/lib/online-order-api";
 import { normalizeItems } from "@/lib/online-order";
 import { CheckCircle, XOctagon, MapPin, Phone, Clock, FileText, User, ShoppingBag, X, Download, Trash2, AlertTriangle } from "lucide-react";
 
@@ -170,9 +170,38 @@ function Delivery() {
     onOrderStatusChange: useCallback((order: any) => {
       console.log("[Delivery] 🔄 Status do pedido alterado:", order.id, "→", order.status);
       
-      // Se o pagamento foi confirmado, notifica
-      if (order.status === "pago" || order.status === "pagamento_confirmado") {
-        toast.success(`💳 Pagamento confirmado para pedido de ${order.cliente}!`, {
+      // Notificações baseadas no novo status
+      const statusMessages: Record<string, { title: string; description: string }> = {
+        "pago": {
+          title: `💳 Pagamento confirmado!`,
+          description: `Pedido de ${order.cliente} - pagamento confirmado e pronto para aceitar.`,
+        },
+        "recebido": {
+          title: `✅ Pedido aceito!`,
+          description: `Pedido de ${order.cliente} - enviado para produção.`,
+        },
+        "preparando": {
+          title: `👨‍🍳 Preparando pedido`,
+          description: `Pedido de ${order.cliente} - em preparo na cozinha.`,
+        },
+        "pronto": {
+          title: `📦 Pedido pronto!`,
+          description: `Pedido de ${order.cliente} - pronto para entrega.`,
+        },
+        "em_entrega": {
+          title: `🚚 Saiu para entrega`,
+          description: `Pedido de ${order.cliente} - motoboy a caminho.`,
+        },
+        "finalizado": {
+          title: `✅ Pedido finalizado!`,
+          description: `Pedido de ${order.cliente} - entregue com sucesso.`,
+        },
+      };
+      
+      const msg = statusMessages[order.status];
+      if (msg) {
+        toast.success(msg.title, {
+          description: msg.description,
           duration: 5000,
         });
       }
@@ -364,7 +393,10 @@ function Delivery() {
   async function handleAceitarPedido(id: string) {
     try {
       await aceitarPedido(id);
-      toast.success("Pedido aceito! Iniciando preparo.");
+      toast.success("✅ Pedido aceito! Enviado para produção.", {
+        description: "O cliente foi notificado e o pedido está sendo preparado.",
+        duration: 6000,
+      });
       await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
     } catch (e: any) {
       toast.error(e?.message || "Não foi possível aceitar o pedido");
@@ -417,94 +449,13 @@ function Delivery() {
 
     try {
       if (paymentConfirmOrderTipo === "online") {
-        // Usa confirmar_pagamento_online RPC que faz tudo:
-        // 1. Registra a venda no financeiro
-        // 2. Dá baixa no estoque
-        // 3. Atualiza status do pedido para "pago"
-        // 4. Cria registro de pagamento
-        // 5. Libera o pedido para produção
-        const { data: vendaId, error: rpcError } = await supabase.rpc("confirmar_pagamento_online", {
-          _pedido_id: paymentConfirmOrderId,
+        // Usa a função confirmarPagamento que tenta RPC primeiro, depois fallback
+        const vendaId = await confirmarPagamento(paymentConfirmOrderId);
+        
+        toast.success(`✅ Pagamento confirmado! Pedido liberado para aceitação.`, {
+          description: "Agora clique em 'Aceitar Pedido' para iniciar a preparação.",
+          duration: 6000,
         });
-
-        if (rpcError) {
-          console.warn("[Delivery] RPC confirmar_pagamento_online falhou, usando fallback:", rpcError.message);
-
-          // Fallback: registra venda manualmente e atualiza status
-          const pedido = pedidosOnline?.find(p => p.id === paymentConfirmOrderId);
-          if (!pedido) {
-            toast.error("Pedido não encontrado");
-            return;
-          }
-
-          try {
-            const novaVendaId = crypto.randomUUID();
-            const sub = pedido.itens.reduce((s: number, i: any) => s + (i.preco_unitario || 0) * i.quantidade, 0);
-            const taxa = Number(pedido.taxa_entrega || 0);
-            const desc = Number(pedido.desconto || 0);
-            const total = sub - desc + taxa;
-
-            const { error: insertErr } = await supabase.from("vendas").insert({
-              id: novaVendaId,
-              tipo: "online",
-              status: "novo",
-              cliente: pedido.cliente,
-              telefone: pedido.telefone,
-              endereco: pedido.endereco,
-              subtotal: sub,
-              desconto: desc,
-              taxa_entrega: taxa,
-              total,
-              cupom: pedido.cupom || null,
-            });
-
-            if (insertErr) {
-              toast.error(`Erro ao registrar venda: ${insertErr.message}`);
-              return;
-            }
-
-            // Insere os itens
-            for (const i of pedido.itens) {
-              await supabase.from("venda_itens").insert({
-                venda_id: novaVendaId,
-                produto_id: i.produto_id,
-                nome: i.nome,
-                quantidade: i.quantidade,
-                preco_unitario: i.preco_unitario || 0,
-                custo_unitario: 0,
-              });
-            }
-
-            // Atualiza o pedido online
-            const { error: statusError } = await supabase
-              .from("pedidos_online")
-              .update({
-                status: "pago",
-                status_pagamento: "pago",
-                venda_id: novaVendaId,
-              })
-              .eq("id", paymentConfirmOrderId);
-
-            if (statusError) {
-              toast.error(`Erro ao atualizar status: ${statusError.message}`);
-              return;
-            }
-
-            // Registra o pagamento
-            await supabase.from("pagamentos_online").insert({
-              pedido_id: paymentConfirmOrderId,
-              status: "pago",
-              metodo: "pix",
-              valor: total,
-            });
-
-          } catch (e: any) {
-            toast.error(`Erro ao registrar venda: ${e?.message || "Erro desconhecido"}`);
-            return;
-          }
-        }
-
-        toast.success(`✅ Pagamento confirmado! Venda registrada, estoque atualizado e pedido liberado para produção.`);
       } else {
         // Para vendas PDV, apenas avança para o próximo status
         await updateVenda(paymentConfirmOrderId, { status: "preparando" });
@@ -838,24 +789,55 @@ function Delivery() {
                         )}
                         {/* Aceitar/Recusar pedido - aparece quando pago ou pendente */}
                         {p.status !== "aguardando_pagamento" && (
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                              onClick={() => handleAceitarPedido(p.id)}
-                            >
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Aceitar Pedido
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="flex-1 text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
-                              onClick={() => openRejectDialog(p.id, p.tipo)}
-                            >
-                              <XOctagon className="h-4 w-4 mr-1" />
-                              Recusar
-                            </Button>
+                          <div className="flex flex-col gap-2">
+                            {p.status === "pago" && (
+                              <div className="rounded-lg border-2 border-green-300 bg-green-50 p-2">
+                                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-green-800">
+                                  <CheckCircle className="h-3.5 w-3.5" />
+                                  Pagamento confirmado - pronto para aceitar
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                                    onClick={() => handleAceitarPedido(p.id)}
+                                  >
+                                    <CheckCircle className="h-4 w-4 mr-1" />
+                                    ✅ Aceitar Pedido
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="flex-1 text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                                    onClick={() => openRejectDialog(p.id, p.tipo)}
+                                  >
+                                    <XOctagon className="h-4 w-4 mr-1" />
+                                    Recusar
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                            {p.status !== "pago" && p.status !== "aguardando_pagamento" && (
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                                  onClick={() => handleAceitarPedido(p.id)}
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-1" />
+                                  Aceitar Pedido
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex-1 text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                                  onClick={() => openRejectDialog(p.id, p.tipo)}
+                                >
+                                  <XOctagon className="h-4 w-4 mr-1" />
+                                  Recusar
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1166,14 +1148,19 @@ function Delivery() {
           <DialogHeader>
             <DialogTitle>Confirmação de Pagamento</DialogTitle>
             <DialogDescription>
-              O que deseja fazer com este pedido?
+              Confirme que o pagamento PIX foi recebido do cliente.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="rounded-lg border bg-muted/30 p-4">
-              <p className="text-sm text-muted-foreground">
-                Ao confirmar o pagamento, a venda será registrada no financeiro, o estoque será atualizado e o pedido será liberado para preparo.
-              </p>
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+              <p className="text-sm font-medium">O que acontece ao confirmar?</p>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>✅ Venda registrada no financeiro</li>
+                <li>✅ Estoque atualizado automaticamente</li>
+                <li>✅ Status muda para "Pagamento Confirmado"</li>
+                <li>✅ Cliente recebe notificação em tempo real</li>
+                <li>✅ Pedido liberado para aceitação</li>
+              </ul>
             </div>
             <div className="flex flex-col gap-2">
               <Button
@@ -1183,7 +1170,7 @@ function Delivery() {
                 disabled={confirmingPayment}
               >
                 <CheckCircle className="h-5 w-5 mr-2" />
-                {confirmingPayment ? "Registrando..." : "Confirmar Pagamento Recebido"}
+                {confirmingPayment ? "Registrando..." : "✅ Confirmar Pagamento Recebido"}
               </Button>
               <Button
                 variant="outline"

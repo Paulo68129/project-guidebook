@@ -90,6 +90,42 @@ export async function expirarPedidoOnline(token: string): Promise<void> {
   }
 }
 
+/** Confirma o pagamento de um pedido online. Registra a venda, baixa o estoque e atualiza o status. */
+export async function confirmarPagamento(pedidoId: string): Promise<string | null> {
+  if (!isUuid(pedidoId)) return null;
+
+  // Tenta RPC confirmar_pagamento_online (registra venda + baixa estoque + muda status)
+  try {
+    const { data, error } = await (supabase as any).rpc("confirmar_pagamento_online", { _pedido_id: pedidoId });
+    if (!error) return data; // Retorna o venda_id
+    console.warn("[delivery] RPC confirmar_pagamento_online falhou, usando fallback:", error.message);
+  } catch (e) {
+    console.warn("[delivery] RPC confirmar_pagamento_online indisponível, usando fallback:", errorMessage(e));
+  }
+
+  // Fallback: apenas atualiza o status para "pago"
+  try {
+    const { error } = await supabase
+      .from("pedidos_online")
+      .update({
+        status: "pago",
+        status_pagamento: "pago",
+      })
+      .eq("id", pedidoId)
+      .eq("status", "aguardando_pagamento");
+
+    if (error) {
+      console.warn("[delivery] Fallback confirmar_pagamento falhou:", error.message);
+      throw new Error(error.message);
+    }
+  } catch (e) {
+    console.warn("[delivery] Erro no fallback confirmar pagamento:", errorMessage(e));
+    throw e;
+  }
+
+  return null;
+}
+
 /** Aceita o pedido no delivery. Tenta RPC primeiro, depois fallback para UPDATE direto. */
 export async function aceitarPedido(pedidoId: string): Promise<void> {
   if (!isUuid(pedidoId)) return;
