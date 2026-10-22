@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const ORDER_STATUSES = [
+  "aguardando_pagamento",
+  "pago",
   "pendente",
   "recebido",
   "preparando",
@@ -13,6 +15,8 @@ export const ORDER_STATUSES = [
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export const STATUS_LABEL: Record<OrderStatus, string> = {
+  aguardando_pagamento: "Aguardando Pagamento",
+  pago: "Pagamento Confirmado",
   pendente: "Novo Pedido",
   recebido: "Pedido Recebido",
   preparando: "Preparando Pedido",
@@ -24,6 +28,8 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
 };
 
 export const NEXT_STATUS: Record<OrderStatus, { status: OrderStatus; label: string } | null> = {
+  aguardando_pagamento: { status: "pago", label: "Confirmar Pagamento" },
+  pago: { status: "recebido", label: "Receber Pedido" },
   pendente: { status: "recebido", label: "Receber Pedido" },
   recebido: { status: "preparando", label: "Preparando Pedido" },
   preparando: { status: "pronto", label: "Pedido Pronto" },
@@ -38,11 +44,18 @@ export function isFinalStatus(status: OrderStatus) {
   return status === "finalizado" || status === "cancelado" || status === "expirado";
 }
 
+/** Verifica se o pedido está pronto para entrar em produção (pagamento confirmado) */
+export function isReadyForProduction(status: OrderStatus) {
+  return ["pago", "recebido", "preparando", "pronto", "em_entrega"].includes(status);
+}
+
 export function normalizeStatus(value: unknown): OrderStatus {
   const s = String(value ?? "").trim().toLowerCase();
   if ((ORDER_STATUSES as readonly string[]).includes(s)) return s as OrderStatus;
   // Mapeia status antigos para o novo padrão
-  if (s === "aguardando_pagamento" || s === "pago" || s === "novo" || s === "confirmado") return "pendente";
+  if (s === "aguardando_pagamento") return "aguardando_pagamento";
+  if (s === "pago" || s === "pagamento_confirmado") return "pago";
+  if (s === "novo" || s === "confirmado") return "pendente";
   if (s === "recebido") return "recebido";
   if (s === "preparo" || s === "em_preparo" || s === "preparando") return "preparando";
   if (s === "pronto") return "pronto";

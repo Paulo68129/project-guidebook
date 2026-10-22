@@ -54,7 +54,7 @@ const onlineStatusMap: Record<string, string> = {
 
 // Verifica se um pedido online está pendente (aguardando aceitação)
 function isPedidoPendente(p: any): boolean {
-  return p.status_delivery === "pendente" || p.status === "pendente" || p.status === "aguardando_pagamento" || p.status === "novo";
+  return p.status_delivery === "pendente" || p.status === "pendente" || p.status === "aguardando_pagamento";
 }
 
 function Delivery() {
@@ -130,7 +130,7 @@ function Delivery() {
       
       // Conta pedidos aguardando pagamento ou novos
       const pendentes = pedidosOnline.filter(p => 
-        p.status === "aguardando_pagamento" || p.status === "novo"
+        p.status === "aguardando_pagamento" || p.status === "pendente"
       );
       
       if (pendentes.length > 0) {
@@ -407,7 +407,7 @@ function Delivery() {
 
   // Conta pedidos pendentes (aguardando aceitação)
   const pedidosPendentes = pedidosOnline?.filter(p => 
-    p.status === "pendente" || p.status === "aguardando_pagamento" || p.status === "novo"
+    p.status === "pendente" || p.status === "aguardando_pagamento"
   ).length ?? 0;
 
   // Confirmar pagamento recebido - registra a venda no financeiro e dá baixa no estoque
@@ -417,36 +417,37 @@ function Delivery() {
 
     try {
       if (paymentConfirmOrderTipo === "online") {
-        const pedido = pedidosOnline?.find(p => p.id === paymentConfirmOrderId);
-        if (!pedido) {
-          toast.error("Pedido não encontrado");
-          return;
-        }
-
-        // Tenta RPC registrar_venda primeiro
-        const { error: vendaError } = await supabase.rpc("registrar_venda", {
-          _itens: pedido.itens.map((i: any) => ({ produto_id: i.produto_id, quantidade: i.quantidade })),
-          _tipo: "delivery",
-          _cliente: pedido.cliente,
-          _telefone: pedido.telefone,
-          _endereco: pedido.endereco,
-          _cupom: pedido.cupom || undefined,
+        // Usa confirmar_pagamento_online RPC que faz tudo:
+        // 1. Registra a venda no financeiro
+        // 2. Dá baixa no estoque
+        // 3. Atualiza status do pedido para "pago"
+        // 4. Cria registro de pagamento
+        // 5. Libera o pedido para produção
+        const { data: vendaId, error: rpcError } = await supabase.rpc("confirmar_pagamento_online", {
+          _pedido_id: paymentConfirmOrderId,
         });
 
-        if (vendaError) {
-          console.warn("[Delivery] RPC registrar_venda falhou, usando fallback:", vendaError.message);
-          // Fallback: insere diretamente na tabela vendas
+        if (rpcError) {
+          console.warn("[Delivery] RPC confirmar_pagamento_online falhou, usando fallback:", rpcError.message);
+
+          // Fallback: registra venda manualmente e atualiza status
+          const pedido = pedidosOnline?.find(p => p.id === paymentConfirmOrderId);
+          if (!pedido) {
+            toast.error("Pedido não encontrado");
+            return;
+          }
+
           try {
-            const vendaId = crypto.randomUUID();
+            const novaVendaId = crypto.randomUUID();
             const sub = pedido.itens.reduce((s: number, i: any) => s + (i.preco_unitario || 0) * i.quantidade, 0);
             const taxa = Number(pedido.taxa_entrega || 0);
             const desc = Number(pedido.desconto || 0);
             const total = sub - desc + taxa;
 
             const { error: insertErr } = await supabase.from("vendas").insert({
-              id: vendaId,
-              tipo: "delivery",
-              status: "pendente",
+              id: novaVendaId,
+              tipo: "online",
+              status: "novo",
               cliente: pedido.cliente,
               telefone: pedido.telefone,
               endereco: pedido.endereco,
@@ -465,7 +466,7 @@ function Delivery() {
             // Insere os itens
             for (const i of pedido.itens) {
               await supabase.from("venda_itens").insert({
-                venda_id: vendaId,
+                venda_id: novaVendaId,
                 produto_id: i.produto_id,
                 nome: i.nome,
                 quantidade: i.quantidade,
@@ -473,27 +474,40 @@ function Delivery() {
                 custo_unitario: 0,
               });
             }
+
+            // Atualiza o pedido online
+            const { error: statusError } = await supabase
+              .from("pedidos_online")
+              .update({
+                status: "pago",
+                status_pagamento: "pago",
+                venda_id: novaVendaId,
+              })
+              .eq("id", paymentConfirmOrderId);
+
+            if (statusError) {
+              toast.error(`Erro ao atualizar status: ${statusError.message}`);
+              return;
+            }
+
+            // Registra o pagamento
+            await supabase.from("pagamentos_online").insert({
+              pedido_id: paymentConfirmOrderId,
+              status: "pago",
+              metodo: "pix",
+              valor: total,
+            });
+
           } catch (e: any) {
             toast.error(`Erro ao registrar venda: ${e?.message || "Erro desconhecido"}`);
             return;
           }
         }
 
-        // Atualiza o status do pedido online para "pago"
-        const { error: statusError } = await supabase
-          .from("pedidos_online")
-          .update({ status: "pago" })
-          .eq("id", paymentConfirmOrderId);
-
-        if (statusError) {
-          toast.error(`Erro ao atualizar status: ${statusError.message}`);
-          return;
-        }
-
-        toast.success(`Pagamento confirmado! Venda registrada e estoque atualizado.`);
+        toast.success(`✅ Pagamento confirmado! Venda registrada, estoque atualizado e pedido liberado para produção.`);
       } else {
         // Para vendas PDV, apenas avança para o próximo status
-        await updateVenda(paymentConfirmOrderId, { status: "preparo" });
+        await updateVenda(paymentConfirmOrderId, { status: "preparando" });
         toast.success("Pagamento confirmado! Iniciando preparo.");
       }
 
@@ -623,7 +637,7 @@ function Delivery() {
   // Excluir todas as entregas concluídas
   async function handleExcluirTodasEntregas() {
     try {
-      const entregasOnline = pedidosOnline?.filter(p => p.status === "finalizado" || p.status === "entregue") || [];
+      const entregasOnline = pedidosOnline?.filter(p => p.status === "finalizado") || [];
       
       if (entregasOnline.length === 0) {
         toast.info("Nenhuma entrega online concluída para excluir");

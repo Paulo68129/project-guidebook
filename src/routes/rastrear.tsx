@@ -52,10 +52,16 @@ const statusConfig: Record<string, { label: string; icon: any; color: string; bg
     bgColor: "bg-yellow-100",
   },
   aguardando_pagamento: {
-    label: "Novo Pedido",
+    label: "Aguardando Pagamento",
     icon: Clock,
     color: "text-yellow-600",
     bgColor: "bg-yellow-100",
+  },
+  pago: {
+    label: "Pagamento Confirmado",
+    icon: CheckCircle,
+    color: "text-green-600",
+    bgColor: "bg-green-100",
   },
   recebido: {
     label: "Pedido Recebido",

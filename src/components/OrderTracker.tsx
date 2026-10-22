@@ -13,6 +13,8 @@ const STEPS: Step[] = [
 ];
 
 const CURRENT_STEP: Record<Exclude<OrderStatus, "cancelado" | "expirado">, number> = {
+  aguardando_pagamento: -1,
+  pago: 0,
   pendente: 0,
   recebido: 0,
   preparando: 1,
@@ -25,10 +27,13 @@ type StepState = "done" | "active" | "waiting" | "upcoming" | "expired";
 
 function stepState(status: Exclude<OrderStatus, "cancelado" | "expirado">, index: number): StepState {
   const current = CURRENT_STEP[status];
+  if (status === "aguardando_pagamento") {
+    return index === 0 ? "waiting" : "upcoming";
+  }
+  if (current < 0) return "upcoming";
   if (index < current) return "done";
   if (index > current) return "upcoming";
-  if (status === "aguardando_pagamento") return "waiting";
-  if (status === "pago" || status === "entregue") return "done";
+  if (status === "pago") return "active";
   return "active";
 }
 
@@ -82,8 +87,8 @@ export function OrderTracker({
 
   if (variant === "compact") {
     const current = CURRENT_STEP[status];
-    const filled = status === "aguardando_pagamento" ? 0 : current;
-    const delivered = status === "entregue";
+    const filled = current < 0 ? 0 : current;
+    const delivered = status === "finalizado";
     return (
       <div className={className}>
         <div
@@ -91,7 +96,7 @@ export function OrderTracker({
           aria-label="Progresso do pedido"
           aria-valuemin={1}
           aria-valuemax={STEPS.length}
-          aria-valuenow={filled + 1}
+          aria-valuenow={Math.max(1, filled + 1)}
           aria-valuetext={STATUS_LABEL[status]}
           className="flex gap-1"
         >
@@ -100,8 +105,8 @@ export function OrderTracker({
               key={step.label}
               className={cn(
                 "h-1.5 flex-1 rounded-full transition-colors",
-                index <= filled ? (delivered ? "bg-success" : "bg-primary") : "bg-muted",
-                index === filled + 1 && !delivered && "animate-pulse bg-primary/40",
+                index <= filled && current >= 0 ? (delivered ? "bg-success" : "bg-primary") : "bg-muted",
+                index === filled + 1 && current >= 0 && !delivered && "animate-pulse bg-primary/40",
               )}
             />
           ))}
@@ -109,7 +114,9 @@ export function OrderTracker({
         <p className="mt-2 text-sm text-muted-foreground">
           {status === "aguardando_pagamento"
             ? "Aguardando o pagamento via PIX para iniciar o preparo."
-            : (STEPS[current]?.description ?? STATUS_LABEL[status])}
+            : status === "pago"
+            ? "Pagamento confirmado! Preparando para iniciar o preparo."
+            : (STEPS[Math.max(0, current)]?.description ?? STATUS_LABEL[status])}
         </p>
       </div>
     );
