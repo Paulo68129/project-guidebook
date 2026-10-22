@@ -26,10 +26,10 @@ export const Route = createFileRoute("/_authenticated/delivery")({
 });
 
 const cols = [
-  { s: "novo", t: "Novos", next: "preparo", btn: "Iniciar preparo" },
-  { s: "preparo", t: "Em preparo", next: "saiu", btn: "Saiu p/ entrega" },
-  { s: "saiu", t: "Saiu para entrega", next: "entregue", btn: "Marcar entregue" },
-  { s: "entregue", t: "Entregues", next: null, btn: "" },
+  { s: "novo", t: "Pedido Recebido", next: "preparo", btn: "Iniciar preparo" },
+  { s: "preparo", t: "Preparando Pedido", next: "saiu", btn: "Saiu p/ entrega" },
+  { s: "saiu", t: "Saiu para Entrega", next: "entregue", btn: "Marcar entregue" },
+  { s: "entregue", t: "Entregue", next: null, btn: "" },
 ] as const;
 
 // Mapeia status de pedidos_online para status do delivery

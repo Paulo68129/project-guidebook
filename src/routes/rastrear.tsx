@@ -58,7 +58,7 @@ const statusConfig: Record<string, { label: string; icon: any; color: string; bg
     bgColor: "bg-blue-100",
   },
   preparo: {
-    label: "Em Preparação",
+    label: "Preparando Pedido",
     icon: ChefHat,
     color: "text-orange-600",
     bgColor: "bg-orange-100",
