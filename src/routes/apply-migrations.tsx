@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { applyDatabaseMigrations } from "@/lib/apply-migrations.functions";
 
 export const Route = createFileRoute("/apply-migrations")({
@@ -13,6 +13,14 @@ function ApplyMigrationsPage() {
     tables: string[];
     errors: string[];
   } | null>(null);
+
+  // Auto-apply migrations on page load
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('auto') === '1') {
+      handleApply();
+    }
+  }, []);
 
   const handleApply = async () => {
     setLoading(true);
