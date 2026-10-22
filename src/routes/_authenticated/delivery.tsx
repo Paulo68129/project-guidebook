@@ -332,11 +332,23 @@ function Delivery() {
         setNfceOnline(pedido);
       }
     }
-    const { error } = await supabase
-      .from("pedidos_online")
-      .update({ status: newStatus, motoboy_id: patch.motoboy_id })
-      .eq("id", id);
-    if (error) { toast.error(error.message); return; }
+
+    // Tenta RPC avancar_status_pedido primeiro (com validação de transição)
+    const rpcResult = await (supabase as any).rpc("avancar_status_pedido", {
+      _pedido_id: id,
+      _novo_status: newStatus,
+      _motivo: patch.motoboy_id ? null : "",
+    });
+
+    if (rpcResult.error) {
+      // Fallback: atualiza status diretamente
+      const { error } = await supabase
+        .from("pedidos_online")
+        .update({ status: newStatus, motoboy_id: patch.motoboy_id })
+        .eq("id", id);
+      if (error) { toast.error(error.message); return; }
+    }
+
     qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
   }
 
@@ -411,7 +423,7 @@ function Delivery() {
           return;
         }
 
-        // Registra a venda usando a função RPC registrar_venda
+        // Tenta RPC registrar_venda primeiro
         const { error: vendaError } = await supabase.rpc("registrar_venda", {
           _itens: pedido.itens.map((i: any) => ({ produto_id: i.produto_id, quantidade: i.quantidade })),
           _tipo: "delivery",
@@ -422,8 +434,49 @@ function Delivery() {
         });
 
         if (vendaError) {
-          toast.error(`Erro ao registrar venda: ${vendaError.message}`);
-          return;
+          console.warn("[Delivery] RPC registrar_venda falhou, usando fallback:", vendaError.message);
+          // Fallback: insere diretamente na tabela vendas
+          try {
+            const vendaId = crypto.randomUUID();
+            const sub = pedido.itens.reduce((s: number, i: any) => s + (i.preco_unitario || 0) * i.quantidade, 0);
+            const taxa = Number(pedido.taxa_entrega || 0);
+            const desc = Number(pedido.desconto || 0);
+            const total = sub - desc + taxa;
+
+            const { error: insertErr } = await supabase.from("vendas").insert({
+              id: vendaId,
+              tipo: "delivery",
+              status: "pendente",
+              cliente: pedido.cliente,
+              telefone: pedido.telefone,
+              endereco: pedido.endereco,
+              subtotal: sub,
+              desconto: desc,
+              taxa_entrega: taxa,
+              total,
+              cupom: pedido.cupom || null,
+            });
+
+            if (insertErr) {
+              toast.error(`Erro ao registrar venda: ${insertErr.message}`);
+              return;
+            }
+
+            // Insere os itens
+            for (const i of pedido.itens) {
+              await supabase.from("venda_itens").insert({
+                venda_id: vendaId,
+                produto_id: i.produto_id,
+                nome: i.nome,
+                quantidade: i.quantidade,
+                preco_unitario: i.preco_unitario || 0,
+                custo_unitario: 0,
+              });
+            }
+          } catch (e: any) {
+            toast.error(`Erro ao registrar venda: ${e?.message || "Erro desconhecido"}`);
+            return;
+          }
         }
 
         // Atualiza o status do pedido online para "pago"

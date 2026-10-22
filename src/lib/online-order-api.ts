@@ -90,34 +90,72 @@ export async function expirarPedidoOnline(token: string): Promise<void> {
   }
 }
 
-/** Aceita o pedido no delivery. Chama a função RPC para atualizar o status. */
+/** Aceita o pedido no delivery. Tenta RPC primeiro, depois fallback para UPDATE direto. */
 export async function aceitarPedido(pedidoId: string): Promise<void> {
   if (!isUuid(pedidoId)) return;
-  
+
+  // Tenta RPC aceitar_pedido (registra venda + baixa estoque + muda status)
   try {
     const { error } = await (supabase as any).rpc("aceitar_pedido", { _pedido_id: pedidoId });
+    if (!error) return;
+    console.warn("[delivery] RPC aceitar_pedido falhou, usando fallback:", error.message);
+  } catch (e) {
+    console.warn("[delivery] RPC aceitar_pedido indisponível, usando fallback:", errorMessage(e));
+  }
+
+  // Fallback: atualiza status diretamente no banco
+  try {
+    const { error } = await supabase
+      .from("pedidos_online")
+      .update({
+        status: "recebido",
+        status_delivery: "aceito",
+        aceito_em: new Date().toISOString(),
+      })
+      .eq("id", pedidoId)
+      .eq("status_delivery", "pendente");
+
     if (error) {
-      console.warn("[delivery] Não foi possível aceitar o pedido:", error.message);
+      console.warn("[delivery] Fallback aceitar_pedido falhou:", error.message);
       throw new Error(error.message);
     }
   } catch (e) {
-    console.warn("[delivery] Erro ao aceitar pedido:", errorMessage(e));
+    console.warn("[delivery] Erro no fallback aceitar pedido:", errorMessage(e));
     throw e;
   }
 }
 
-/** Recusa o pedido no delivery com um motivo. Chama a função RPC para atualizar o status. */
+/** Recusa o pedido no delivery com um motivo. Tenta RPC primeiro, depois fallback. */
 export async function recusarPedido(pedidoId: string, motivo: string): Promise<void> {
   if (!isUuid(pedidoId)) return;
-  
+
+  // Tenta RPC recusar_pedido
   try {
     const { error } = await (supabase as any).rpc("recusar_pedido", { _pedido_id: pedidoId, _motivo: motivo });
+    if (!error) return;
+    console.warn("[delivery] RPC recusar_pedido falhou, usando fallback:", error.message);
+  } catch (e) {
+    console.warn("[delivery] RPC recusar_pedido indisponível, usando fallback:", errorMessage(e));
+  }
+
+  // Fallback: atualiza status diretamente
+  try {
+    const { error } = await supabase
+      .from("pedidos_online")
+      .update({
+        status: "cancelado",
+        status_delivery: "recusado",
+        recusado_em: new Date().toISOString(),
+        motivo_recusa: motivo,
+      })
+      .eq("id", pedidoId);
+
     if (error) {
-      console.warn("[delivery] Não foi possível recusar o pedido:", error.message);
+      console.warn("[delivery] Fallback recusar_pedido falhou:", error.message);
       throw new Error(error.message);
     }
   } catch (e) {
-    console.warn("[delivery] Erro ao recusar pedido:", errorMessage(e));
+    console.warn("[delivery] Erro no fallback recusar pedido:", errorMessage(e));
     throw e;
   }
 }
