@@ -14,9 +14,9 @@ import { OnlineOrderNFCE } from "@/components/OnlineOrderNFCE";
 import type { OnlineOrder } from "@/lib/online-order";
 import { useNewOrderSound } from "@/hooks/useNewOrderSound";
 import { useOnlineOrdersRealtime } from "@/hooks/useOnlineOrdersRealtime";
-import { aceitarPedido, recusarPedido, confirmarPagamento } from "@/lib/online-order-api";
+import { aceitarPedido, recusarPedido, confirmarPagamento, salvarPedido } from "@/lib/online-order-api";
 import { normalizeItems } from "@/lib/online-order";
-import { CheckCircle, XOctagon, MapPin, Phone, Clock, FileText, User, ShoppingBag, X, Download, Trash2, AlertTriangle } from "lucide-react";
+import { CheckCircle, XOctagon, MapPin, Phone, Clock, FileText, User, ShoppingBag, X, Download, Trash2, AlertTriangle, Save, Search, Globe, Filter, Calendar } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/delivery")({
   head: () => ({ meta: [{ title: "Delivery — PizzaStockAI" }, { name: "description", content: "Acompanhe pedidos de delivery do preparo à entrega." }, { property: "og:title", content: "Delivery — PizzaStockAI" }, { property: "og:description", content: "Quadro de pedidos de delivery." }] }),
@@ -91,6 +91,15 @@ function Delivery() {
   // Estado para busy durante confirmação de pagamento
   const [confirmingPayment, setConfirmingPayment] = useState(false);
 
+  // Estado para salvar pedido
+  const [savingOrder, setSavingOrder] = useState<string | null>(null);
+
+  // Estado para seção de pedidos salvos
+  const [savedOrdersOpen, setSavedOrdersOpen] = useState(false);
+  const [savedSearchTerm, setSavedSearchTerm] = useState("");
+  const [savedStatusFilter, setSavedStatusFilter] = useState<string>("");
+  const [savedDateFilter, setSavedDateFilter] = useState<string>("");
+
   // Abrir painel de detalhes do pedido
   function openOrderDetail(order: any) {
     setSelectedOrder(order);
@@ -104,7 +113,7 @@ function Delivery() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pedidos_online")
-        .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, status, motoboy_id, created_at, cupom, status_delivery, motivo_recusa, aceito_em, recusado_em, entregue_em, observacoes, origem")
+        .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, status, motoboy_id, created_at, cupom, status_delivery, motivo_recusa, aceito_em, recusado_em, entregue_em, observacoes, origem, salvo_em, salvo_por")
         .in("status", ["pendente", "aguardando_pagamento", "pago", "novo", "recebido", "preparando", "preparo", "pronto", "em_entrega", "saiu", "finalizado", "entregue"])
         .order("created_at", { ascending: false });
       if (error) {
@@ -265,6 +274,8 @@ function Delivery() {
       aceito_em?: string | null;
       recusado_em?: string | null;
       entregue_em?: string | null;
+      salvo_em?: string | null;
+      salvo_por?: string | null;
     }> = [];
 
     // Adiciona vendas do tipo delivery e balcão
@@ -324,6 +335,8 @@ function Delivery() {
           aceito_em: (p as any).aceito_em || null,
           recusado_em: (p as any).recusado_em || null,
           entregue_em: (p as any).entregue_em || null,
+          salvo_em: (p as any).salvo_em || null,
+          salvo_por: (p as any).salvo_por || null,
         }))
       );
     }
@@ -625,6 +638,67 @@ function Delivery() {
   // Conta entregas concluídas
   const entregasConcluidas = getPedidosByColumn("finalizado").length;
 
+  // Função para salvar pedido
+  async function handleSalvarPedido(pedidoId: string) {
+    setSavingOrder(pedidoId);
+    try {
+      await salvarPedido(pedidoId, "operador");
+      toast.success("💾 Pedido salvo com sucesso!", {
+        description: "O pedido foi registrado permanentemente e pode ser consultado em 'Pedidos Salvos'.",
+        duration: 5000,
+      });
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+    } catch (e: any) {
+      const msg = e?.message || "";
+      if (msg.includes("já está salvo")) {
+        toast.info("✅ Este pedido já está salvo no sistema.", {
+          duration: 4000,
+        });
+      } else {
+        toast.error(msg || "Erro ao salvar pedido");
+      }
+    } finally {
+      setSavingOrder(null);
+    }
+  }
+
+  // Busca pedidos salvos com filtros
+  function getSavedOrders() {
+    if (!pedidosOnline) return [];
+    
+    let saved = pedidosOnline.filter(p => (p as any).salvo_em != null);
+    
+    // Filtro por termo de busca (cliente, telefone, número)
+    if (savedSearchTerm.trim()) {
+      const term = savedSearchTerm.toLowerCase().trim();
+      saved = saved.filter(p => {
+        const cliente = (p.cliente || "").toLowerCase();
+        const telefone = (p.telefone || "").toLowerCase();
+        return cliente.includes(term) || telefone.includes(term);
+      });
+    }
+    
+    // Filtro por status
+    if (savedStatusFilter) {
+      saved = saved.filter(p => p.status === savedStatusFilter);
+    }
+    
+    // Filtro por data
+    if (savedDateFilter) {
+      saved = saved.filter(p => {
+        const createdDate = new Date(p.created_at).toISOString().slice(0, 10);
+        return createdDate === savedDateFilter;
+      });
+    }
+    
+    // Ordena por data de criação, mais recente primeiro
+    saved.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return saved;
+  }
+
+  // Conta pedidos salvos
+  const totalPedidosSalvos = pedidosOnline?.filter(p => (p as any).salvo_em != null).length ?? 0;
+
   return (
     <div>
       <PageHeader 
@@ -656,6 +730,15 @@ function Delivery() {
         <Button
           variant="outline"
           size="sm"
+          onClick={() => setSavedOrdersOpen(!savedOrdersOpen)}
+          className={savedOrdersOpen ? "bg-blue-50 border-blue-300 text-blue-700" : ""}
+        >
+          <Save className="h-4 w-4 mr-1" />
+          📚 Pedidos Salvos ({totalPedidosSalvos})
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={exportarEntregasCSV}
           disabled={entregasConcluidas === 0}
         >
@@ -673,6 +756,153 @@ function Delivery() {
           Excluir Entregas Concluídas
         </Button>
       </div>
+
+      {/* Seção de Pedidos Salvos */}
+      {savedOrdersOpen && (
+        <div className="mb-6 rounded-xl border bg-muted/30 p-4">
+          <div className="mb-4 flex items-center gap-2">
+            <Save className="h-5 w-5 text-blue-600" />
+            <h2 className="text-lg font-semibold">📚 Pedidos Salvos</h2>
+            <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+              {getSavedOrders().length}
+            </span>
+          </div>
+
+          {/* Barra de busca e filtros */}
+          <div className="mb-4 flex flex-wrap gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por cliente ou telefone..."
+                value={savedSearchTerm}
+                onChange={(e) => setSavedSearchTerm(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <div className="relative">
+              <Filter className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <select
+                className="rounded-lg border bg-background pl-9 pr-8 py-2 text-sm"
+                value={savedStatusFilter}
+                onChange={(e) => setSavedStatusFilter(e.target.value)}
+              >
+                <option value="">Todos os status</option>
+                <option value="aguardando_pagamento">Aguardando Pagamento</option>
+                <option value="pago">Pagamento Confirmado</option>
+                <option value="recebido">Pedido Recebido</option>
+                <option value="preparando">Preparando</option>
+                <option value="pronto">Pronto</option>
+                <option value="em_entrega">Em Entrega</option>
+                <option value="finalizado">Finalizado</option>
+              </select>
+            </div>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="date"
+                className="rounded-lg border bg-background pl-9 pr-3 py-2 text-sm"
+                value={savedDateFilter}
+                onChange={(e) => setSavedDateFilter(e.target.value)}
+              />
+            </div>
+            {(savedSearchTerm || savedStatusFilter || savedDateFilter) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSavedSearchTerm("");
+                  setSavedStatusFilter("");
+                  setSavedDateFilter("");
+                }}
+              >
+                <X className="h-4 w-4 mr-1" />
+                Limpar
+              </Button>
+            )}
+          </div>
+
+          {/* Lista de pedidos salvos */}
+          <div className="space-y-3 max-h-[600px] overflow-y-auto">
+            {getSavedOrders().length === 0 ? (
+              <div className="rounded-lg border-2 border-dashed border-muted-foreground/20 p-8 text-center">
+                <Save className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
+                <p className="text-muted-foreground">
+                  {pedidosOnline && pedidosOnline.length > 0
+                    ? "Nenhum pedido salvo encontrado com os filtros selecionados."
+                    : "Nenhum pedido salvo ainda. Use o botão '💾 Salvar Pedido' nos pedidos online."}
+                </p>
+              </div>
+            ) : (
+              getSavedOrders().map((p) => (
+                <div
+                  key={p.id}
+                  className="rounded-lg border bg-card p-4 cursor-pointer hover:border-primary hover:shadow-md transition"
+                  onClick={() => openOrderDetail(p)}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                          <Globe className="h-3 w-3" />
+                          🌐 Pedido Online
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          #{p.id.replace(/-/g, "").slice(0, 8).toUpperCase()}
+                        </span>
+                        {(p as any).salvo_em && (
+                          <span className="inline-flex items-center gap-1 rounded bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                            💾 Salvo em {new Date((p as any).salvo_em).toLocaleString("pt-BR", {
+                              day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+                            })}
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-semibold">{p.cliente}</div>
+                      <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                        <div>📞 {p.telefone}</div>
+                        <div>📍 {p.endereco}</div>
+                        <div>🕐 {new Date(p.created_at).toLocaleString("pt-BR", {
+                          day: "2-digit", month: "2-digit", year: "2-digit",
+                          hour: "2-digit", minute: "2-digit",
+                        })}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-display text-lg font-bold text-primary">{brl(p.total)}</div>
+                      <div className="text-xs text-muted-foreground">PIX</div>
+                      <div className="mt-1">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          p.status === "finalizado" ? "bg-green-100 text-green-700" :
+                          p.status === "em_entrega" ? "bg-purple-100 text-purple-700" :
+                          p.status === "pronto" ? "bg-cyan-100 text-cyan-700" :
+                          p.status === "preparando" ? "bg-orange-100 text-orange-700" :
+                          p.status === "pago" ? "bg-blue-100 text-blue-700" :
+                          "bg-yellow-100 text-yellow-700"
+                        }`}>
+                          {p.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Itens resumidos */}
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {p.itens?.slice(0, 3).map((i: any, idx: number) => (
+                      <span key={idx} className="inline-block rounded bg-muted px-2 py-0.5 text-[10px]">
+                        {i.quantidade}× {i.nome}
+                      </span>
+                    ))}
+                    {p.itens && p.itens.length > 3 && (
+                      <span className="inline-block rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                        +{p.itens.length - 3}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {cols.map((c) => {
           const list = getPedidosByColumn(c.s);
@@ -691,10 +921,12 @@ function Delivery() {
                         {p.tipo === "venda" && p.numero ? `#${p.numero} ` : ""}
                         {p.cliente}
                         <span className={`ml-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                          p.origem === 'Loja Online' ? 'bg-blue-100 text-blue-700' :
+                          p.tipo === 'online' ? 'bg-blue-100 text-blue-700' :
                           p.origem === 'Delivery' ? 'bg-green-100 text-green-700' :
                           'bg-orange-100 text-orange-700'
-                        }`}>{p.origem}</span>
+                        }`}>
+                          {p.tipo === 'online' ? '🌐 Online' : p.origem}
+                        </span>
                       </span>
                       <span>{brl(p.total)}</span>
                     </div>
@@ -759,6 +991,26 @@ function Delivery() {
                     )}
                     {c.s === "pendente" && p.tipo === "online" && (
                       <div className="mt-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                        {/* Botão Salvar Pedido - exclusivo para pedidos online */}
+                        {!p.salvo_em && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full border-blue-300 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                            onClick={() => handleSalvarPedido(p.id)}
+                            disabled={savingOrder === p.id}
+                          >
+                            <Save className="h-4 w-4 mr-1" />
+                            {savingOrder === p.id ? "Salvando..." : "💾 Salvar Pedido"}
+                          </Button>
+                        )}
+                        {p.salvo_em && (
+                          <div className="rounded bg-green-50 border border-green-200 px-2 py-1 text-[10px] font-semibold text-green-700 text-center">
+                            ✅ Pedido salvo em {new Date(p.salvo_em).toLocaleString("pt-BR", {
+                              day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+                            })}
+                          </div>
+                        )}
                         {/* Confirmar pagamento - aparece quando aguardando pagamento */}
                         {p.status === "aguardando_pagamento" && (
                           <div className="rounded-lg border-2 border-yellow-300 bg-yellow-50 p-2">
@@ -1049,6 +1301,28 @@ function Delivery() {
                 <h3 className="font-semibold text-primary">Ações</h3>
                 {selectedOrder.tipo === "online" ? (
                   <>
+                    {!selectedOrder.salvo_em && (
+                      <Button
+                        className="w-full border-blue-300 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                        variant="outline"
+                        size="lg"
+                        onClick={() => handleSalvarPedido(selectedOrder.id)}
+                        disabled={savingOrder === selectedOrder.id}
+                      >
+                        <Save className="h-5 w-5 mr-2" />
+                        {savingOrder === selectedOrder.id ? "Salvando..." : "💾 Salvar Pedido"}
+                      </Button>
+                    )}
+                    {selectedOrder.salvo_em && (
+                      <div className="rounded bg-green-50 border border-green-200 p-3 text-center">
+                        <div className="text-xs font-semibold text-green-700">
+                          ✅ Pedido salvo em {new Date(selectedOrder.salvo_em).toLocaleString("pt-BR", {
+                            day: "2-digit", month: "2-digit", year: "numeric",
+                            hour: "2-digit", minute: "2-digit",
+                          })}
+                        </div>
+                      </div>
+                    )}
                     <Button
                       className="w-full bg-green-600 hover:bg-green-700 text-white"
                       size="lg"

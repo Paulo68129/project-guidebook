@@ -1224,6 +1224,53 @@ COMMENT ON FUNCTION public.criar_pedido_online IS 'Cria um pedido online sem aut
 COMMENT ON FUNCTION public.confirmar_pagamento_online IS 'Confirma pagamento online e sincroniza com PDV/Estoque';
 COMMENT ON FUNCTION public.catalogo_online IS 'Retorna catálogo de produtos e configuração da loja';
 
+-- ============================================
+-- 16. COLUNAS PARA PEDIDOS SALVOS
+-- ============================================
+
+ALTER TABLE public.pedidos_online ADD COLUMN IF NOT EXISTS salvo_em timestamptz;
+ALTER TABLE public.pedidos_online ADD COLUMN IF NOT EXISTS salvo_por text;
+
+CREATE INDEX IF NOT EXISTS idx_pedidos_online_salvo_em ON public.pedidos_online(salvo_em) WHERE salvo_em IS NOT NULL;
+
+-- Função RPC para salvar pedido
+CREATE OR REPLACE FUNCTION public.salvar_pedido_online(_pedido_id uuid, _usuario text DEFAULT 'operador')
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $func$
+DECLARE
+  result jsonb;
+  audit_id uuid;
+BEGIN
+  -- Verifica se já está salvo (prevenção de duplicidade)
+  IF NOT EXISTS (SELECT 1 FROM public.pedidos_online WHERE id = _pedido_id AND origem = 'loja_online') THEN
+    RAISE EXCEPTION 'Pedido não encontrado ou não é um pedido online';
+  END IF;
+
+  -- Verifica se já foi salvo anteriormente
+  IF EXISTS (SELECT 1 FROM public.pedidos_online WHERE id = _pedido_id AND salvo_em IS NOT NULL) THEN
+    RAISE EXCEPTION 'Este pedido já está salvo no sistema';
+  END IF;
+
+  -- Atualiza o pedido como salvo
+  UPDATE public.pedidos_online
+  SET salvo_em = NOW(), salvo_por = _usuario, updated_at = NOW()
+  WHERE id = _pedido_id
+  RETURNING to_jsonb(pedidos_online) INTO result;
+
+  -- Registra na auditoria
+  INSERT INTO public.pedidos_online_audit (pedido_id, acao, detalhes, criado_em)
+  VALUES (_pedido_id, 'pedido_salvo', jsonb_build_object('usuario', _usuario), NOW())
+  RETURNING id INTO audit_id;
+
+  RETURN jsonb_build_object('pedido', result, 'audit_id', audit_id);
+END;
+$func$;
+
+GRANT EXECUTE ON FUNCTION public.salvar_pedido_online(uuid, text) TO authenticated;
+
 COMMIT;
 
 -- Atualizar schema cache do PostgREST

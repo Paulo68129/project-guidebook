@@ -223,3 +223,63 @@ export async function criarFeedback(
     throw e;
   }
 }
+
+/** Salva um pedido online permanentemente. Tenta RPC primeiro, depois fallback. */
+export async function salvarPedido(pedidoId: string, usuario: string = "operador"): Promise<void> {
+  if (!isUuid(pedidoId)) return;
+
+  // Tenta RPC salvar_pedido_online
+  try {
+    const { data, error } = await (supabase as any).rpc("salvar_pedido_online", {
+      _pedido_id: pedidoId,
+      _usuario: usuario,
+    });
+    if (!error) {
+      console.log("[delivery] Pedido salvo via RPC:", data);
+      return;
+    }
+    // Se já está salvo, não é erro
+    if (error.message?.includes("já está salvo")) {
+      throw new Error("Este pedido já está salvo no sistema");
+    }
+    console.warn("[delivery] RPC salvar_pedido_online falhou, usando fallback:", error.message);
+  } catch (e) {
+    // Se já está salvo, propaga o erro
+    if (errorMessage(e).includes("já está salvo")) throw e;
+    console.warn("[delivery] RPC salvar_pedido_online indisponível, usando fallback:", errorMessage(e));
+  }
+
+  // Fallback: atualiza diretamente no banco
+  try {
+    const { error } = await supabase
+      .from("pedidos_online")
+      .update({
+        salvo_em: new Date().toISOString(),
+        salvo_por: usuario,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", pedidoId)
+      .is("salvo_em", null); // Só atualiza se ainda não estiver salvo
+
+    if (error) {
+      console.warn("[delivery] Fallback salvar_pedido falhou:", error.message);
+      throw new Error(error.message);
+    }
+
+    // Registra na auditoria
+    try {
+      await supabase
+        .from("pedidos_online_audit")
+        .insert({
+          pedido_id: pedidoId,
+          acao: "pedido_salvo",
+          detalhes: { usuario },
+        });
+    } catch (auditError) {
+      console.warn("[delivery] Erro ao registrar auditoria:", errorMessage(auditError));
+    }
+  } catch (e) {
+    console.warn("[delivery] Erro no fallback salvar pedido:", errorMessage(e));
+    throw e;
+  }
+}
