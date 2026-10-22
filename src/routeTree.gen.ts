@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as ApplyMigrationsRouteImport } from './routes/apply-migrations'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AvaliacoesRouteImport } from './routes/avaliacoes'
+import { Route as CheckEnvRouteImport } from './routes/check-env'
 import { Route as LojaRouteImport } from './routes/loja'
 import { Route as RastrearRouteImport } from './routes/rastrear'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
@@ -28,6 +29,7 @@ import { Route as AuthenticatedFinanceiroRouteImport } from './routes/_authentic
 import { Route as AuthenticatedPdvRouteImport } from './routes/_authenticated/pdv'
 import { Route as AuthenticatedPrevisoesRouteImport } from './routes/_authenticated/previsoes'
 import { Route as ApiApplyMigrationsRouteImport } from './routes/api/apply-migrations'
+import { Route as ApiCheckEnvRouteImport } from './routes/api/check-env'
 import { Route as PagamentoVendaIdRouteImport } from './routes/pagamento/$vendaId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -52,6 +54,11 @@ const AuthRoute = AuthRouteImport.update({
 const AvaliacoesRoute = AvaliacoesRouteImport.update({
   id: '/avaliacoes',
   path: '/avaliacoes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CheckEnvRoute = CheckEnvRouteImport.update({
+  id: '/check-env',
+  path: '/check-env',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LojaRoute = LojaRouteImport.update({
@@ -124,6 +131,11 @@ const ApiApplyMigrationsRoute = ApiApplyMigrationsRouteImport.update({
   path: '/api/apply-migrations',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCheckEnvRoute = ApiCheckEnvRouteImport.update({
+  id: '/api/check-env',
+  path: '/api/check-env',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PagamentoVendaIdRoute = PagamentoVendaIdRouteImport.update({
   id: '/pagamento/$vendaId',
   path: '/pagamento/$vendaId',
@@ -135,6 +147,7 @@ export interface FileRoutesByFullPath {
   '/apply-migrations': typeof ApplyMigrationsRoute
   '/auth': typeof AuthRoute
   '/avaliacoes': typeof AvaliacoesRoute
+  '/check-env': typeof CheckEnvRoute
   '/loja': typeof LojaRoute
   '/rastrear': typeof RastrearRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -149,6 +162,7 @@ export interface FileRoutesByFullPath {
   '/pdv': typeof AuthenticatedPdvRoute
   '/previsoes': typeof AuthenticatedPrevisoesRoute
   '/api/apply-migrations': typeof ApiApplyMigrationsRoute
+  '/api/check-env': typeof ApiCheckEnvRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
 }
 export interface FileRoutesByTo {
@@ -156,6 +170,7 @@ export interface FileRoutesByTo {
   '/apply-migrations': typeof ApplyMigrationsRoute
   '/auth': typeof AuthRoute
   '/avaliacoes': typeof AvaliacoesRoute
+  '/check-env': typeof CheckEnvRoute
   '/loja': typeof LojaRoute
   '/rastrear': typeof RastrearRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -170,6 +185,7 @@ export interface FileRoutesByTo {
   '/pdv': typeof AuthenticatedPdvRoute
   '/previsoes': typeof AuthenticatedPrevisoesRoute
   '/api/apply-migrations': typeof ApiApplyMigrationsRoute
+  '/api/check-env': typeof ApiCheckEnvRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
 }
 export interface FileRoutesById {
@@ -179,6 +195,7 @@ export interface FileRoutesById {
   '/apply-migrations': typeof ApplyMigrationsRoute
   '/auth': typeof AuthRoute
   '/avaliacoes': typeof AvaliacoesRoute
+  '/check-env': typeof CheckEnvRoute
   '/loja': typeof LojaRoute
   '/rastrear': typeof RastrearRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -193,6 +210,7 @@ export interface FileRoutesById {
   '/_authenticated/pdv': typeof AuthenticatedPdvRoute
   '/_authenticated/previsoes': typeof AuthenticatedPrevisoesRoute
   '/api/apply-migrations': typeof ApiApplyMigrationsRoute
+  '/api/check-env': typeof ApiCheckEnvRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
 }
 export interface FileRouteTypes {
@@ -202,6 +220,7 @@ export interface FileRouteTypes {
     | '/apply-migrations'
     | '/auth'
     | '/avaliacoes'
+    | '/check-env'
     | '/loja'
     | '/rastrear'
     | '/reset-password'
@@ -216,6 +235,7 @@ export interface FileRouteTypes {
     | '/pdv'
     | '/previsoes'
     | '/api/apply-migrations'
+    | '/api/check-env'
     | '/pagamento/$vendaId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -223,6 +243,7 @@ export interface FileRouteTypes {
     | '/apply-migrations'
     | '/auth'
     | '/avaliacoes'
+    | '/check-env'
     | '/loja'
     | '/rastrear'
     | '/reset-password'
@@ -237,6 +258,7 @@ export interface FileRouteTypes {
     | '/pdv'
     | '/previsoes'
     | '/api/apply-migrations'
+    | '/api/check-env'
     | '/pagamento/$vendaId'
   id:
     | '__root__'
@@ -245,6 +267,7 @@ export interface FileRouteTypes {
     | '/apply-migrations'
     | '/auth'
     | '/avaliacoes'
+    | '/check-env'
     | '/loja'
     | '/rastrear'
     | '/reset-password'
@@ -259,6 +282,7 @@ export interface FileRouteTypes {
     | '/_authenticated/pdv'
     | '/_authenticated/previsoes'
     | '/api/apply-migrations'
+    | '/api/check-env'
     | '/pagamento/$vendaId'
   fileRoutesById: FileRoutesById
 }
@@ -268,10 +292,12 @@ export interface RootRouteChildren {
   ApplyMigrationsRoute: typeof ApplyMigrationsRoute
   AuthRoute: typeof AuthRoute
   AvaliacoesRoute: typeof AvaliacoesRoute
+  CheckEnvRoute: typeof CheckEnvRoute
   LojaRoute: typeof LojaRoute
   RastrearRoute: typeof RastrearRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiApplyMigrationsRoute: typeof ApiApplyMigrationsRoute
+  ApiCheckEnvRoute: typeof ApiCheckEnvRoute
   PagamentoVendaIdRoute: typeof PagamentoVendaIdRoute
 }
 
@@ -310,6 +336,13 @@ declare module '@tanstack/react-router' {
       path: '/avaliacoes'
       fullPath: '/avaliacoes'
       preLoaderRoute: typeof AvaliacoesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/check-env': {
+      id: '/check-env'
+      path: '/check-env'
+      fullPath: '/check-env'
+      preLoaderRoute: typeof CheckEnvRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/loja': {
@@ -410,6 +443,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiApplyMigrationsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/check-env': {
+      id: '/api/check-env'
+      path: '/api/check-env'
+      fullPath: '/api/check-env'
+      preLoaderRoute: typeof ApiCheckEnvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pagamento/$vendaId': {
       id: '/pagamento/$vendaId'
       path: '/pagamento/$vendaId'
@@ -455,10 +495,12 @@ const rootRouteChildren: RootRouteChildren = {
   ApplyMigrationsRoute: ApplyMigrationsRoute,
   AuthRoute: AuthRoute,
   AvaliacoesRoute: AvaliacoesRoute,
+  CheckEnvRoute: CheckEnvRoute,
   LojaRoute: LojaRoute,
   RastrearRoute: RastrearRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ApiApplyMigrationsRoute: ApiApplyMigrationsRoute,
+  ApiCheckEnvRoute: ApiCheckEnvRoute,
   PagamentoVendaIdRoute: PagamentoVendaIdRoute,
 }
 export const routeTree = rootRouteImport
