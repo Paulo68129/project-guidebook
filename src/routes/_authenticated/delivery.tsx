@@ -16,7 +16,7 @@ import { useNewOrderSound } from "@/hooks/useNewOrderSound";
 import { useOnlineOrdersRealtime } from "@/hooks/useOnlineOrdersRealtime";
 import { aceitarPedido, recusarPedido } from "@/lib/online-order-api";
 import { normalizeItems } from "@/lib/online-order";
-import { CheckCircle, XOctagon, MapPin, Phone, Clock, FileText, User, ShoppingBag, X } from "lucide-react";
+import { CheckCircle, XOctagon, MapPin, Phone, Clock, FileText, User, ShoppingBag, X, Download, Trash2, AlertTriangle } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/delivery")({
   head: () => ({ meta: [{ title: "Delivery — PizzaStockAI" }, { name: "description", content: "Acompanhe pedidos de delivery do preparo à entrega." }, { property: "og:title", content: "Delivery — PizzaStockAI" }, { property: "og:description", content: "Quadro de pedidos de delivery." }] }),
@@ -63,6 +63,19 @@ function Delivery() {
   // Estado para painel lateral de detalhes do pedido
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+
+  // Estado para diálogo de confirmação de pagamento
+  const [paymentConfirmDialogOpen, setPaymentConfirmDialogOpen] = useState(false);
+  const [paymentConfirmOrderId, setPaymentConfirmOrderId] = useState<string | null>(null);
+  const [paymentConfirmOrderTipo, setPaymentConfirmOrderTipo] = useState<"venda" | "online" | null>(null);
+
+  // Estado para diálogo de exclusão de entregas
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteSingleOrderId, setDeleteSingleOrderId] = useState<string | null>(null);
+  const [deleteSingleOrderTipo, setDeleteSingleOrderTipo] = useState<"venda" | "online" | null>(null);
+
+  // Estado para busy durante confirmação de pagamento
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
 
   // Abrir painel de detalhes do pedido
   function openOrderDetail(order: any) {
@@ -365,6 +378,215 @@ function Delivery() {
     p.status === "aguardando_pagamento" || p.status === "novo"
   ).length ?? 0;
 
+  // Confirmar pagamento recebido - registra a venda no financeiro e dá baixa no estoque
+  async function handleConfirmarPagamento() {
+    if (!paymentConfirmOrderId || !paymentConfirmOrderTipo) return;
+    setConfirmingPayment(true);
+
+    try {
+      if (paymentConfirmOrderTipo === "online") {
+        const pedido = pedidosOnline?.find(p => p.id === paymentConfirmOrderId);
+        if (!pedido) {
+          toast.error("Pedido não encontrado");
+          return;
+        }
+
+        // Registra a venda usando a função RPC registrar_venda
+        const { error: vendaError } = await supabase.rpc("registrar_venda", {
+          _itens: pedido.itens.map((i: any) => ({ produto_id: i.produto_id, quantidade: i.quantidade })),
+          _tipo: "delivery",
+          _cliente: pedido.cliente,
+          _telefone: pedido.telefone,
+          _endereco: pedido.endereco,
+          _cupom: pedido.cupom || undefined,
+        });
+
+        if (vendaError) {
+          toast.error(`Erro ao registrar venda: ${vendaError.message}`);
+          return;
+        }
+
+        // Atualiza o status do pedido online para "pago"
+        const { error: statusError } = await supabase
+          .from("pedidos_online")
+          .update({ status: "pago" })
+          .eq("id", paymentConfirmOrderId);
+
+        if (statusError) {
+          toast.error(`Erro ao atualizar status: ${statusError.message}`);
+          return;
+        }
+
+        toast.success(`Pagamento confirmado! Venda registrada e estoque atualizado.`);
+      } else {
+        // Para vendas PDV, apenas avança para o próximo status
+        await updateVenda(paymentConfirmOrderId, { status: "preparo" });
+        toast.success("Pagamento confirmado! Iniciando preparo.");
+      }
+
+      setPaymentConfirmDialogOpen(false);
+      setPaymentConfirmOrderId(null);
+      setPaymentConfirmOrderTipo(null);
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+      await qc.invalidateQueries({ queryKey: ["vendas"] });
+      await qc.invalidateQueries({ queryKey: ["ingredientes"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao confirmar pagamento");
+    } finally {
+      setConfirmingPayment(false);
+    }
+  }
+
+  // Pagamento não recebido - mantém o pedido bloqueado
+  async function handlePagamentoNaoRecebido() {
+    if (!paymentConfirmOrderId || !paymentConfirmOrderTipo) return;
+
+    try {
+      if (paymentConfirmOrderTipo === "online") {
+        // Mantém o status como "aguardando_pagamento" - não registra venda
+        toast.info("Pedido mantido como aguardando pagamento. Nenhuma venda registrada.");
+      }
+
+      setPaymentConfirmDialogOpen(false);
+      setPaymentConfirmOrderId(null);
+      setPaymentConfirmOrderTipo(null);
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao processar pedido");
+    }
+  }
+
+  // Abrir diálogo de confirmação de pagamento
+  function openPaymentConfirmDialog(orderId: string, tipo: "venda" | "online") {
+    setPaymentConfirmOrderId(orderId);
+    setPaymentConfirmOrderTipo(tipo);
+    setPaymentConfirmDialogOpen(true);
+  }
+
+  // Exportar entregas para CSV
+  function exportarEntregasCSV() {
+    const entregas = getPedidosByColumn("entregue");
+    if (entregas.length === 0) {
+      toast.error("Nenhuma entrega concluída para exportar");
+      return;
+    }
+
+    // Cabeçalho CSV
+    const headers = ["Pedido", "Cliente", "Telefone", "Endereço", "Produtos", "Valor Total", "Forma de Pagamento", "Data", "Hora", "Status"];
+    
+    // Linhas de dados
+    const rows = entregas.map(p => {
+      const data = new Date(p.created_at);
+      const produtos = p.itens.map(i => `${i.quantidade}x ${i.nome}`).join("; ");
+      const formaPagamento = p.tipo === "online" ? "PIX" : "PDV";
+      const status = "Entregue";
+      
+      return [
+        p.numero || p.id.replace(/-/g, "").slice(0, 8).toUpperCase(),
+        `"${p.cliente.replace(/"/g, '""')}"`,
+        `"${p.telefone.replace(/"/g, '""')}"`,
+        `"${p.endereco.replace(/"/g, '""')}"`,
+        `"${produtos.replace(/"/g, '""')}"`,
+        p.total.toFixed(2),
+        formaPagamento,
+        data.toLocaleDateString("pt-BR"),
+        data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        status
+      ].join(",");
+    });
+
+    // Montar CSV completo
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    
+    // Adicionar BOM para UTF-8
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + csvContent], { type: "text/csv;charset=utf-8;" });
+    
+    // Criar link de download
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `entregas_pizzastockai_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success(`${entregas.length} entrega(s) exportada(s) para CSV`);
+  }
+
+  // Excluir entrega concluída individual
+  async function handleExcluirEntrega() {
+    if (!deleteSingleOrderId || !deleteSingleOrderTipo) return;
+
+    try {
+      if (deleteSingleOrderTipo === "online") {
+        const { error } = await supabase
+          .from("pedidos_online")
+          .delete()
+          .eq("id", deleteSingleOrderId);
+        if (error) {
+          toast.error(error.message);
+          return;
+        }
+      } else {
+        // Para vendas, não exclui o registro financeiro
+        toast.info("Vendas PDV não podem ser excluídas para preservar registros financeiros.");
+        setDeleteDialogOpen(false);
+        setDeleteSingleOrderId(null);
+        setDeleteSingleOrderTipo(null);
+        return;
+      }
+
+      toast.success("Entrega excluída com sucesso");
+      setDeleteDialogOpen(false);
+      setDeleteSingleOrderId(null);
+      setDeleteSingleOrderTipo(null);
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao excluir entrega");
+    }
+  }
+
+  // Excluir todas as entregas concluídas
+  async function handleExcluirTodasEntregas() {
+    try {
+      const entregasOnline = pedidosOnline?.filter(p => p.status === "entregue") || [];
+      
+      if (entregasOnline.length === 0) {
+        toast.info("Nenhuma entrega online concluída para excluir");
+        setDeleteDialogOpen(false);
+        return;
+      }
+
+      const ids = entregasOnline.map(p => p.id);
+      const { error } = await supabase
+        .from("pedidos_online")
+        .delete()
+        .in("id", ids);
+
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success(`${ids.length} entrega(s) online excluída(s)`);
+      setDeleteDialogOpen(false);
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao excluir entregas");
+    }
+  }
+
+  // Abrir diálogo de exclusão individual
+  function openDeleteDialog(orderId: string, tipo: "venda" | "online") {
+    setDeleteSingleOrderId(orderId);
+    setDeleteSingleOrderTipo(tipo);
+    setDeleteDialogOpen(true);
+  }
+
+  // Conta entregas concluídas
+  const entregasConcluidas = getPedidosByColumn("entregue").length;
+
   return (
     <div>
       <PageHeader 
@@ -391,6 +613,28 @@ function Delivery() {
           </span>
         }
       />
+      {/* Botões de ação */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={exportarEntregasCSV}
+          disabled={entregasConcluidas === 0}
+        >
+          <Download className="h-4 w-4 mr-1" />
+          Exportar Entregas CSV ({entregasConcluidas})
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setDeleteDialogOpen(true)}
+          disabled={entregasConcluidas === 0}
+          className="text-destructive border-destructive hover:bg-destructive hover:text-white"
+        >
+          <Trash2 className="h-4 w-4 mr-1" />
+          Excluir Entregas Concluídas
+        </Button>
+      </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {cols.map((c) => {
           const list = getPedidosByColumn(c.s);
@@ -477,24 +721,48 @@ function Delivery() {
                       </select>
                     )}
                     {c.s === "novo" && p.tipo === "online" && (
-                      <div className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          size="sm"
-                          className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                          onClick={() => handleAceitarPedido(p.id)}
-                        >
-                          <CheckCircle className="h-4 w-4 mr-1" />
-                          Aceitar
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
-                          onClick={() => openRejectDialog(p.id, p.tipo)}
-                        >
-                          <XOctagon className="h-4 w-4 mr-1" />
-                          Recusar
-                        </Button>
+                      <div className="mt-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                        {/* Confirmação de pagamento */}
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => openPaymentConfirmDialog(p.id, p.tipo)}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Confirmar Pagamento
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                            onClick={() => openPaymentConfirmDialog(p.id, p.tipo)}
+                          >
+                            <XOctagon className="h-4 w-4 mr-1" />
+                            Pagamento Não Recebido
+                          </Button>
+                        </div>
+                        {/* Aceitar/Recusar pedido */}
+                        {p.status_delivery === 'pendente' && (
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="flex-1"
+                              onClick={() => handleAceitarPedido(p.id)}
+                            >
+                              Aceitar Pedido
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive"
+                              onClick={() => openRejectDialog(p.id, p.tipo)}
+                            >
+                              Recusar
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                     {c.next && c.s !== "novo" && (
@@ -507,6 +775,19 @@ function Delivery() {
                       <div className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
                         <Button size="sm" className="flex-1" onClick={() => update(p.id, p.tipo, { status: c.next! })}>{c.btn}</Button>
                         <Button size="sm" variant="ghost" onClick={() => update(p.id, p.tipo, { status: "cancelado" })}>Cancelar</Button>
+                      </div>
+                    )}
+                    {c.s === "entregue" && (
+                      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="w-full text-destructive hover:bg-destructive hover:text-white"
+                          onClick={() => openDeleteDialog(p.id, p.tipo)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Excluir
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -785,6 +1066,103 @@ function Delivery() {
             >
               <XOctagon className="h-4 w-4 mr-1" />
               Recusar pedido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de confirmação de pagamento */}
+      <Dialog open={paymentConfirmDialogOpen} onOpenChange={setPaymentConfirmDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmação de Pagamento</DialogTitle>
+            <DialogDescription>
+              O que deseja fazer com este pedido?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <p className="text-sm text-muted-foreground">
+                Ao confirmar o pagamento, a venda será registrada no financeiro, o estoque será atualizado e o pedido será liberado para preparo.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Button
+                className="w-full bg-green-600 hover:bg-green-700 text-white"
+                size="lg"
+                onClick={handleConfirmarPagamento}
+                disabled={confirmingPayment}
+              >
+                <CheckCircle className="h-5 w-5 mr-2" />
+                {confirmingPayment ? "Registrando..." : "Confirmar Pagamento Recebido"}
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                size="lg"
+                onClick={handlePagamentoNaoRecebido}
+                disabled={confirmingPayment}
+              >
+                <XOctagon className="h-5 w-5 mr-2" />
+                Pagamento Não Recebido
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentConfirmDialogOpen(false)}>
+              Cancelar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de exclusão de entregas */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              <DialogTitle>Excluir Entregas Concluídas</DialogTitle>
+            </div>
+            <DialogDescription>
+              {deleteSingleOrderId 
+                ? "Deseja excluir esta entrega concluída? Registros financeiros e de estoque não serão afetados."
+                : "Deseja excluir todas as entregas concluídas? Registros financeiros e de estoque não serão afetados."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+              <p className="text-sm text-yellow-800">
+                ⚠️ Esta ação não pode ser desfeita. Os registros financeiros e movimentações de estoque serão preservados.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              {deleteSingleOrderId ? (
+                <Button
+                  variant="destructive"
+                  className="w-full"
+                  size="lg"
+                  onClick={handleExcluirEntrega}
+                >
+                  <Trash2 className="h-5 w-5 mr-2" />
+                  Excluir Esta Entrega
+                </Button>
+              ) : (
+                <Button
+                  variant="destructive"
+                  className="w-full"
+                  size="lg"
+                  onClick={handleExcluirTodasEntregas}
+                >
+                  <Trash2 className="h-5 w-5 mr-2" />
+                  Excluir Todas as Entregas Concluídas
+                </Button>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Cancelar
             </Button>
           </DialogFooter>
         </DialogContent>

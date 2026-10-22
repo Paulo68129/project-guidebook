@@ -1,5 +1,5 @@
 -- ============================================
--- MIGRAÇÃO CONSOLIDADA: 0007 + 0008 + 0009
+-- MIGRAÇÃO CONSOLIDADA: 0007 + 0008 + 0009 + 0010
 -- ============================================
 -- Execute este arquivo NO SQL EDITOR do Supabase Dashboard:
 -- https://supabase.com/dashboard/project/lstycewiltrbefrxicdx/sql
@@ -7,32 +7,242 @@
 -- Ou use: supabase db push
 --
 -- O que esta migração faz:
--- 1. Configura REPLICA IDENTITY FULL para Realtime (0007)
--- 2. Cria tabelas de rastreamento e notificações (0008)
--- 3. Atualiza criar_pedido_online com descrição dos itens (0009)
+-- 1. Cria TODAS as tabelas faltantes (pagamentos_online, pedidos_online_audit,
+--    rastreamento_pedidos, notificacoes_delivery, feedback_clientes, respostas_feedback)
+-- 2. Configura REPLICA IDENTITY FULL para Realtime (0007)
+-- 3. Cria triggers de rastreamento e notificações (0008)
+-- 4. Atualiza criar_pedido_online com descrição dos itens (0009)
+-- 5. Cria função apply_migration_sql para migrações futuras (0010)
 -- ============================================
 
 -- ============================================
--- PARTE 1: MIGRAÇÃO 0007 - Realtime Replication
+-- PARTE 0: Função auxiliar de updated_at (precisa existir antes das triggers)
 -- ============================================
 
--- 1.1. Configurar replica_identity FULL em todas as tabelas
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================
+-- PARTE 1: Criação de TODAS as tabelas faltantes
+-- ============================================
+
+-- 1.1. Tabela de pagamentos online
+CREATE TABLE IF NOT EXISTS public.pagamentos_online (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  pedido_id uuid REFERENCES public.pedidos_online(id) ON DELETE CASCADE,
+  transaction_id text,
+  status text NOT NULL DEFAULT 'aguardando',
+  metodo text NOT NULL DEFAULT 'pix',
+  valor numeric NOT NULL DEFAULT 0,
+  qr_code text,
+  pix_copia_cola text,
+  payload_webhook jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pagamentos_online_pedido_id ON public.pagamentos_online(pedido_id);
+CREATE INDEX IF NOT EXISTS idx_pagamentos_online_transaction_id ON public.pagamentos_online(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_pagamentos_online_status ON public.pagamentos_online(status);
+
+ALTER TABLE public.pagamentos_online ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon consulta pagamentos por pedido" ON public.pagamentos_online;
+CREATE POLICY "anon consulta pagamentos por pedido" ON public.pagamentos_online FOR SELECT TO anon USING (true);
+DROP POLICY IF EXISTS "anon insere pagamentos" ON public.pagamentos_online;
+CREATE POLICY "anon insere pagamentos" ON public.pagamentos_online FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS "anon atualiza pagamentos" ON public.pagamentos_online FOR UPDATE TO anon USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "staff acessa pagamentos_online" ON public.pagamentos_online;
+CREATE POLICY "staff acessa pagamentos_online" ON public.pagamentos_online FOR ALL TO authenticated USING (public.is_staff(auth.uid()));
+
+GRANT SELECT, INSERT, UPDATE ON public.pagamentos_online TO anon, authenticated;
+GRANT ALL ON public.pagamentos_online TO service_role;
+
+DROP TRIGGER IF EXISTS set_updated_at_pagamentos_online ON public.pagamentos_online;
+CREATE TRIGGER set_updated_at_pagamentos_online
+  BEFORE UPDATE ON public.pagamentos_online
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- 1.2. Tabela de auditoria de pedidos
+CREATE TABLE IF NOT EXISTS public.pedidos_online_audit (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  pedido_id uuid REFERENCES public.pedidos_online(id) ON DELETE CASCADE,
+  acao text NOT NULL,
+  detalhes jsonb,
+  criado_em timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pedidos_online_audit_pedido_id ON public.pedidos_online_audit(pedido_id);
+
+ALTER TABLE public.pedidos_online_audit ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "staff ve audit" ON public.pedidos_online_audit;
+CREATE POLICY "staff ve audit" ON public.pedidos_online_audit FOR SELECT TO authenticated USING (true);
+
+GRANT SELECT, INSERT ON public.pedidos_online_audit TO authenticated, service_role;
+
+-- 1.3. Tabela de rastreamento de pedidos
+CREATE TABLE IF NOT EXISTS public.rastreamento_pedidos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  pedido_id uuid NOT NULL REFERENCES public.pedidos_online(id) ON DELETE CASCADE,
+  status text NOT NULL,
+  descricao text,
+  criado_em timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rastreamento_pedido_id ON public.rastreamento_pedidos(pedido_id);
+CREATE INDEX IF NOT EXISTS idx_rastreamento_criado_em ON public.rastreamento_pedidos(criado_em DESC);
+
+ALTER TABLE public.rastreamento_pedidos ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon ve rastreamento" ON public.rastreamento_pedidos;
+CREATE POLICY "anon ve rastreamento" ON public.rastreamento_pedidos FOR SELECT TO anon USING (true);
+DROP POLICY IF EXISTS "staff ve todos rastreamentos" ON public.rastreamento_pedidos;
+CREATE POLICY "staff ve todos rastreamentos" ON public.rastreamento_pedidos FOR SELECT TO authenticated USING (true);
+
+GRANT SELECT ON public.rastreamento_pedidos TO anon, authenticated;
+GRANT INSERT ON public.rastreamento_pedidos TO authenticated, service_role;
+
+-- 1.4. Tabela de notificações de delivery
+CREATE TABLE IF NOT EXISTS public.notificacoes_delivery (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  pedido_id uuid NOT NULL REFERENCES public.pedidos_online(id) ON DELETE CASCADE,
+  tipo text NOT NULL DEFAULT 'novo_pedido',
+  mensagem text,
+  analisado boolean DEFAULT false,
+  criado_em timestamptz NOT NULL DEFAULT now(),
+  analisado_em timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_notificacoes_pedido_id ON public.notificacoes_delivery(pedido_id);
+CREATE INDEX IF NOT EXISTS idx_notificacoes_analisado ON public.notificacoes_delivery(analisado);
+CREATE INDEX IF NOT EXISTS idx_notificacoes_criado_em ON public.notificacoes_delivery(criado_em DESC);
+
+ALTER TABLE public.notificacoes_delivery ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "staff ve notificacoes" ON public.notificacoes_delivery;
+CREATE POLICY "staff ve notificacoes" ON public.notificacoes_delivery FOR SELECT TO authenticated USING (public.is_staff(auth.uid()));
+DROP POLICY IF EXISTS "staff atualiza notificacoes" ON public.notificacoes_delivery FOR UPDATE TO authenticated USING (public.is_staff(auth.uid()));
+
+GRANT SELECT ON public.notificacoes_delivery TO authenticated;
+GRANT INSERT ON public.notificacoes_delivery TO authenticated, service_role;
+GRANT UPDATE ON public.notificacoes_delivery TO authenticated;
+
+-- 1.5. Tabela de feedback de clientes
+CREATE TABLE IF NOT EXISTS public.feedback_clientes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  pedido_id uuid REFERENCES public.pedidos_online(id) ON DELETE SET NULL,
+  cliente_nome text NOT NULL,
+  nota integer NOT NULL CHECK (nota BETWEEN 1 AND 5),
+  mensagem text,
+  aprovado boolean DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_pedido_id ON public.feedback_clientes(pedido_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_nota ON public.feedback_clientes(nota);
+
+ALTER TABLE public.feedback_clientes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon insere feedback" ON public.feedback_clientes;
+CREATE POLICY "anon insere feedback" ON public.feedback_clientes FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS "anon ve feedback aprovado" ON public.feedback_clientes;
+CREATE POLICY "anon ve feedback aprovado" ON public.feedback_clientes FOR SELECT TO anon USING (aprovado);
+DROP POLICY IF EXISTS "staff ve todos feedback" ON public.feedback_clientes;
+CREATE POLICY "staff ve todos feedback" ON public.feedback_clientes FOR ALL TO authenticated USING (true);
+
+GRANT SELECT, INSERT ON public.feedback_clientes TO anon, authenticated;
+GRANT ALL ON public.feedback_clientes TO service_role;
+
+DROP TRIGGER IF EXISTS set_updated_at_feedback_clientes ON public.feedback_clientes;
+CREATE TRIGGER set_updated_at_feedback_clientes
+  BEFORE UPDATE ON public.feedback_clientes
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- 1.6. Tabela de respostas de feedback
+CREATE TABLE IF NOT EXISTS public.respostas_feedback (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  feedback_id uuid NOT NULL REFERENCES public.feedback_clientes(id) ON DELETE CASCADE,
+  resposta text NOT NULL,
+  respondido_por uuid REFERENCES auth.users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.respostas_feedback ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon ve respostas" ON public.respostas_feedback;
+CREATE POLICY "anon ve respostas" ON public.respostas_feedback FOR SELECT TO anon USING (true);
+DROP POLICY IF EXISTS "staff gerencia respostas" ON public.respostas_feedback;
+CREATE POLICY "staff gerencia respostas" ON public.respostas_feedback FOR ALL TO authenticated USING (true);
+
+GRANT SELECT ON public.respostas_feedback TO anon, authenticated;
+GRANT ALL ON public.respostas_feedback TO service_role;
+
+DROP TRIGGER IF EXISTS set_updated_at_respostas_feedback ON public.respostas_feedback;
+CREATE TRIGGER set_updated_at_respostas_feedback
+  BEFORE UPDATE ON public.respostas_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ============================================
+-- PARTE 2: REPLICA IDENTITY FULL para Realtime
+-- ============================================
+
 ALTER TABLE public.pedidos_online REPLICA IDENTITY FULL;
 ALTER TABLE public.pagamentos_online REPLICA IDENTITY FULL;
 ALTER TABLE public.pedidos_online_audit REPLICA IDENTITY FULL;
+ALTER TABLE public.rastreamento_pedidos REPLICA IDENTITY FULL;
+ALTER TABLE public.notificacoes_delivery REPLICA IDENTITY FULL;
 ALTER TABLE public.feedback_clientes REPLICA IDENTITY FULL;
 ALTER TABLE public.respostas_feedback REPLICA IDENTITY FULL;
 
--- 1.2. Garantir que todas as tabelas estão na publicação do Realtime
+-- Adicionar todas as tabelas à publicação do Realtime
 DO $$
 BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE public.pedidos_online;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE public.pagamentos_online;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE public.pedidos_online_audit;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.rastreamento_pedidos;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.notificacoes_delivery;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE public.feedback_clientes;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE public.respostas_feedback;
-EXCEPTION WHEN duplicate_object THEN
-  NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- 1.3. Função de updated_at para tracking
