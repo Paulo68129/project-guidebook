@@ -1,13 +1,14 @@
 {
-  "framework": "tanstack-start",
-  "buildCommand": "npm run build",
-  "outputDirectory": ".output",
-  "installCommand": "npm install",
-  "devCommand": "npm run dev",
+  "buildCommand": "npm install && npm run build",
+  "outputDirectory": ".output/public",
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
       "source": "/(.*)",
-      "destination": "/"
+      "destination": "/index.html"
     }
   ],
   "headers": [
