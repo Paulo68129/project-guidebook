@@ -982,8 +982,15 @@ Acesse o painel da Vercel → Settings → Environment Variables e adicione:
 
 | Variável | Descrição |
 |---|---|
-| `VITE_SUPABASE_URL` | URL do seu projeto Supabase |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Chave pública/anon do Supabase |
+| `SUPABASE_URL` | URL do seu projeto Supabase (ex: `https://xyz.supabase.co`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Chave secreta** para operações de servidor (migrações, RPC) — começa com `sb_secret_` |
+| `SUPABASE_PUBLISHABLE_KEY` | Chave pública/anon do Supabase — começa com `sb_publishable_` |
+| `VITE_SUPABASE_URL` | URL do seu projeto Supabase (mesma que `SUPABASE_URL`) |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Chave pública (mesma que `SUPABASE_PUBLISHABLE_KEY`) |
+
+> ⚠️ **SUPABASE_SERVICE_ROLE_KEY é essencial!** Sem ela, as migrações de banco de dados e funções RPC (criar pedido, confirmar pagamento, aceitar pedido) não funcionam. Obtenha em: Supabase Dashboard → Settings → API → API Keys → `service_role` secret.
+>
+> ⚠️ **NUNCA** exponha esta chave no frontend ou em repositórios públicos!
 
 **Variáveis opcionais (PIX Dinâmico via Enviare):**
 
@@ -993,6 +1000,13 @@ Acesse o painel da Vercel → Settings → Environment Variables e adicione:
 | `ENVIARE_MERCHANT_ID` | ID do estabelecimento |
 | `ENVIARE_WEBHOOK_SECRET` | Segredo HMAC para webhook |
 | `ENVIARE_WEBHOOK_URL` | URL da Edge Function do webhook |
+
+**Após configurar as variáveis:**
+
+1. Faça um novo deploy (Redeploy na Vercel ou push no Git)
+2. Acesse `/check-env` para verificar o status do sistema
+3. Se mostrar "⚠️ Configuração incompleta", acesse `/apply-migrations?auto=1` para criar as tabelas
+4. Teste o fluxo: `/loja` → `/delivery` → `/rastrear`
 
 **Configuração do `vercel.json`:**
 - Framework: `tanstack-start`

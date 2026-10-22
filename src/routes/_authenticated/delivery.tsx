@@ -808,26 +808,56 @@ function Delivery() {
                     )}
                     {c.s === "pendente" && p.tipo === "online" && (
                       <div className="mt-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
-                        {/* Aceitar/Recusar pedido - principal ação em Pedidos Recentes */}
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                            onClick={() => handleAceitarPedido(p.id)}
-                          >
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            Aceitar Pedido
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="flex-1 text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
-                            onClick={() => openRejectDialog(p.id, p.tipo)}
-                          >
-                            <XOctagon className="h-4 w-4 mr-1" />
-                            Recusar
-                          </Button>
-                        </div>
+                        {/* Confirmar pagamento - aparece quando aguardando pagamento */}
+                        {p.status === "aguardando_pagamento" && (
+                          <div className="rounded-lg border-2 border-yellow-300 bg-yellow-50 p-2">
+                            <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-yellow-800">
+                              <Clock className="h-3.5 w-3.5" />
+                              Aguardando pagamento PIX
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                                onClick={() => openPaymentConfirmDialog(p.id, p.tipo)}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                Confirmar Pagamento
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="flex-1 text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                                onClick={() => openRejectDialog(p.id, p.tipo)}
+                              >
+                                <XOctagon className="h-4 w-4 mr-1" />
+                                Recusar
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                        {/* Aceitar/Recusar pedido - aparece quando pago ou pendente */}
+                        {p.status !== "aguardando_pagamento" && (
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                              onClick={() => handleAceitarPedido(p.id)}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Aceitar Pedido
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1 text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                              onClick={() => openRejectDialog(p.id, p.tipo)}
+                            >
+                              <XOctagon className="h-4 w-4 mr-1" />
+                              Recusar
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                     {c.next && c.s !== "pendente" && (
