@@ -12,10 +12,10 @@ export const ORDER_STATUSES = [
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export const STATUS_LABEL: Record<OrderStatus, string> = {
-  aguardando_pagamento: "Aguardando pagamento",
+  aguardando_pagamento: "Pedido Recebido",
   pago: "Pagamento confirmado",
-  preparo: "Em preparo",
-  saiu: "Saiu para entrega",
+  preparo: "Preparando Pedido",
+  saiu: "Saiu para Entrega",
   entregue: "Entregue",
   cancelado: "Cancelado",
   expirado: "Tempo de pagamento expirado",

@@ -5,19 +5,18 @@ import { STATUS_LABEL, type OrderStatus } from "@/lib/online-order";
 type Step = { label: string; description: string; icon: LucideIcon };
 
 const STEPS: Step[] = [
-  { label: "Pedido Recebido", description: "A pizzaria recebeu o seu pedido.", icon: ReceiptText },
-  { label: "Pagamento confirmado", description: "PIX confirmado pela loja.", icon: BadgeCheck },
+  { label: "Pedido Recebido", description: "Seu pedido foi recebido e já está sendo preparado.", icon: ReceiptText },
   { label: "Preparando Pedido", description: "Seu pedido está sendo preparado.", icon: ChefHat },
   { label: "Saiu para Entrega", description: "O entregador está a caminho.", icon: Bike },
   { label: "Entregue", description: "Pedido entregue. Bom apetite!", icon: House },
 ];
 
 const CURRENT_STEP: Record<Exclude<OrderStatus, "cancelado" | "expirado">, number> = {
-  aguardando_pagamento: 1,
-  pago: 1,
-  preparo: 2,
-  saiu: 3,
-  entregue: 4,
+  aguardando_pagamento: 0,
+  pago: 0,
+  preparo: 1,
+  saiu: 2,
+  entregue: 3,
 };
 
 type StepState = "done" | "active" | "waiting" | "upcoming" | "expired";

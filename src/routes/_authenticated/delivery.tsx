@@ -26,6 +26,7 @@ export const Route = createFileRoute("/_authenticated/delivery")({
 });
 
 const cols = [
+  { s: "recents", t: "Pedidos Recentes", next: null, btn: "" },
   { s: "novo", t: "Pedido Recebido", next: "preparo", btn: "Iniciar preparo" },
   { s: "preparo", t: "Preparando Pedido", next: "saiu", btn: "Saiu p/ entrega" },
   { s: "saiu", t: "Saiu para Entrega", next: "entregue", btn: "Marcar entregue" },
@@ -33,15 +34,22 @@ const cols = [
 ] as const;
 
 // Mapeia status de pedidos_online para status do delivery
+// Pedidos com status_delivery='pendente' vão para "Pedidos Recentes"
+// Pedidos aceitos (status_delivery='aceito') com status='pago' vão para "Pedido Recebido"
 const onlineStatusMap: Record<string, string> = {
-  "aguardando_pagamento": "novo",
+  "aguardando_pagamento": "recents",
   "pago": "novo",
-  "novo": "novo",
+  "novo": "recents",
   "preparo": "preparo",
   "saiu": "saiu",
   "entregue": "entregue",
   "cancelado": "cancelado",
 };
+
+// Verifica se um pedido online deve ir para "Pedidos Recentes"
+function shouldGoToRecents(p: any): boolean {
+  return p.status_delivery === "pendente" && (p.status === "aguardando_pagamento" || p.status === "novo");
+}
 
 function Delivery() {
   const { data: vendas } = useSuspenseQuery(vendasQ(2));
@@ -223,8 +231,8 @@ function Delivery() {
       entregue_em?: string | null;
     }> = [];
 
-    // Adiciona vendas do tipo delivery
-    if (status !== "cancelado") {
+    // Adiciona vendas do tipo delivery (não vão para "Pedidos Recentes")
+    if (status !== "cancelado" && status !== "recents") {
       result.push(
         ...pedidosVendas
           .filter((v) => v.status === status)
@@ -251,31 +259,38 @@ function Delivery() {
 
     // Adiciona pedidos online
     if (pedidosOnline && status !== "cancelado") {
+      const filtered = pedidosOnline.filter((p) => {
+        // Pedidos Recentes: apenas pedidos com status_delivery='pendente'
+        if (status === "recents") {
+          return shouldGoToRecents(p);
+        }
+        // Para outras colunas, usa o mapeamento normal, mas exclui os que estão em "Pedidos Recentes"
+        if (shouldGoToRecents(p)) return false;
+        return onlineStatusMap[p.status] === status;
+      });
       result.push(
-        ...pedidosOnline
-          .filter((p) => onlineStatusMap[p.status] === status)
-          .map((p) => ({
-            id: p.id,
-            tipo: "online" as const,
-            cliente: p.cliente,
-            telefone: p.telefone,
-            endereco: p.endereco,
-            total: Number(p.total),
-            subtotal: Number(p.subtotal),
-            desconto: Number(p.desconto),
-            taxa_entrega: Number(p.taxa_entrega),
-            cupom: p.cupom || null,
-            observacoes: (p as any).observacoes || null,
-            itens: p.itens?.map((i) => ({ nome: i.nome, descricao: i.descricao, quantidade: i.quantidade, preco_unitario: i.preco_unitario })) || [],
-            motoboy_id: (p as OnlineOrder & { motoboy_id?: string | null }).motoboy_id || null,
-            created_at: p.created_at,
-            status: p.status,
-            status_delivery: (p as any).status_delivery || null,
-            motivo_recusa: (p as any).motivo_recusa || null,
-            aceito_em: (p as any).aceito_em || null,
-            recusado_em: (p as any).recusado_em || null,
-            entregue_em: (p as any).entregue_em || null,
-          }))
+        ...filtered.map((p) => ({
+          id: p.id,
+          tipo: "online" as const,
+          cliente: p.cliente,
+          telefone: p.telefone,
+          endereco: p.endereco,
+          total: Number(p.total),
+          subtotal: Number(p.subtotal),
+          desconto: Number(p.desconto),
+          taxa_entrega: Number(p.taxa_entrega),
+          cupom: p.cupom || null,
+          observacoes: (p as any).observacoes || null,
+          itens: p.itens?.map((i) => ({ nome: i.nome, descricao: i.descricao, quantidade: i.quantidade, preco_unitario: i.preco_unitario })) || [],
+          motoboy_id: (p as OnlineOrder & { motoboy_id?: string | null }).motoboy_id || null,
+          created_at: p.created_at,
+          status: p.status,
+          status_delivery: (p as any).status_delivery || null,
+          motivo_recusa: (p as any).motivo_recusa || null,
+          aceito_em: (p as any).aceito_em || null,
+          recusado_em: (p as any).recusado_em || null,
+          entregue_em: (p as any).entregue_em || null,
+        }))
       );
     }
 
@@ -635,7 +650,7 @@ function Delivery() {
           Excluir Entregas Concluídas
         </Button>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {cols.map((c) => {
           const list = getPedidosByColumn(c.s);
           return (
@@ -720,9 +735,33 @@ function Delivery() {
                         {motoboys.filter((m) => m.ativo).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
                       </select>
                     )}
+                    {c.s === "recents" && p.tipo === "online" && (
+                      <div className="mt-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                        {/* Aceitar/Recusar pedido - principal ação em Pedidos Recentes */}
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => handleAceitarPedido(p.id)}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Aceitar Pedido
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 text-orange-600 border-orange-600 hover:bg-orange-600 hover:text-white"
+                            onClick={() => openRejectDialog(p.id, p.tipo)}
+                          >
+                            <XOctagon className="h-4 w-4 mr-1" />
+                            Recusar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {c.s === "novo" && p.tipo === "online" && (
                       <div className="mt-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
-                        {/* Confirmação de pagamento */}
+                        {/* Confirmação de pagamento para pedidos já aceitos */}
                         <div className="flex gap-2">
                           <Button
                             size="sm"
@@ -742,27 +781,6 @@ function Delivery() {
                             Pagamento Não Recebido
                           </Button>
                         </div>
-                        {/* Aceitar/Recusar pedido */}
-                        {p.status_delivery === 'pendente' && (
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="flex-1"
-                              onClick={() => handleAceitarPedido(p.id)}
-                            >
-                              Aceitar Pedido
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-destructive"
-                              onClick={() => openRejectDialog(p.id, p.tipo)}
-                            >
-                              Recusar
-                            </Button>
-                          </div>
-                        )}
                       </div>
                     )}
                     {c.next && c.s !== "novo" && (

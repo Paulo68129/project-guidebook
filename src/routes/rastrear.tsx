@@ -46,13 +46,13 @@ interface PedidoOnline {
 // Mapeamento de status para exibição
 const statusConfig: Record<string, { label: string; icon: any; color: string; bgColor: string }> = {
   aguardando_pagamento: {
-    label: "Aguardando Pagamento",
+    label: "Pedido Recebido",
     icon: Clock,
-    color: "text-yellow-600",
-    bgColor: "bg-yellow-100",
+    color: "text-blue-600",
+    bgColor: "bg-blue-100",
   },
   pago: {
-    label: "Pago",
+    label: "Pedido Recebido",
     icon: CheckCircle,
     color: "text-blue-600",
     bgColor: "bg-blue-100",
@@ -84,7 +84,7 @@ const statusConfig: Record<string, { label: string; icon: any; color: string; bg
 };
 
 // Ordem dos status na timeline
-const statusOrder = ["aguardando_pagamento", "pago", "preparo", "saiu", "entregue"];
+const statusOrder = ["aguardando_pagamento", "preparo", "saiu", "entregue"];
 
 // Verifica se o pedido expirou (mais de 5 minutos aguardando pagamento)
 function isPedidoExpirado(pedido: PedidoOnline): boolean {
