@@ -1,26 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { applyDatabaseMigrations } from "@/lib/apply-migrations.functions";
 
 export const Route = createFileRoute("/apply-migrations")({
+  loader: async ({ search }) => {
+    // Auto-apply migrations when ?auto=1 is present
+    if (search?.auto === '1') {
+      return await applyDatabaseMigrations({ data: {} });
+    }
+    return null;
+  },
   component: ApplyMigrationsPage,
 });
 
 function ApplyMigrationsPage() {
+  const loaderData = Route.useLoaderData();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     success: boolean;
     tables: string[];
     errors: string[];
-  } | null>(null);
-
-  // Auto-apply migrations on page load
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('auto') === '1') {
-      handleApply();
-    }
-  }, []);
+  } | null>(loaderData as any);
 
   const handleApply = async () => {
     setLoading(true);
