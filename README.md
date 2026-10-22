@@ -204,11 +204,19 @@ Novos Pedidos → Em Preparo → Saiu para Entrega → Entregue
 - Instruções passo a passo de como pagar
 - Dados sensíveis mascarados na tela (chave PIX e telefone)
 
-**Confirmação Automática:**
+**Confirmação Manual de Pagamento:**
+- Proprietário confirma o pagamento manualmente na tela de Delivery
+- Botão **"✅ Confirmar Pagamento"** visível quando status é `aguardando_pagamento`
 - Função `confirmar_pagamento_online` vincula pedido online ao PDV
 - Baixa automática de estoque ao confirmar pagamento
 - Registro de auditoria na tabela `pagamentos_online`
 - Criação automática de venda no sistema
+- Cliente recebe notificação em tempo real via Supabase Realtime
+
+**Aceitação de Pedido:**
+- Após confirmar pagamento, botão **"✅ Aceitar Pedido"** aparece destacado
+- Pedido é enviado para produção automaticamente
+- Status muda: `aguardando_pagamento → pago → recebido → preparando → pronto → em_entrega → finalizado`
 
 **Impressão Térmica:**
 - QR Code no cupom para pagamento rápido
@@ -458,20 +466,31 @@ Os clientes podem rastrear seus pedidos em tempo real através da página `/rast
 
 **Funcionalidades:**
 - Busca por código do pedido (token único)
-- Timeline visual do status do pedido
-- Atualização automática via Supabase Realtime
+- Timeline visual com **7 etapas** do status do pedido
+- Atualização automática via Supabase Realtime (sem refresh)
+- **Notificações toast** automáticas quando o status muda
+- **Banner de notificação** visual com mensagem personalizada para cada status
 - Exibição de informações do cliente, endereço e itens
-- Cupom fiscal/impressão do pedido
-- Notificações de status em tempo real
+- Cupom fiscal/impressão do pedido (NFCE)
 - **Expiração automática**: Pedidos não pagos são removidos após 5 minutos
 
-**Fluxo de Status:**
+**Fluxo de Status (7 etapas):**
 ```
-Aguardando Pagamento → Pago → Em Preparação → Saiu para Entrega → Entregue
+Aguardando Pagamento → Pagamento Confirmado → Pedido Recebido → Preparando → Pronto → Saiu para Entrega → Entregue
 ```
+
+**Notificações em Tempo Real:**
+- ✅ **Pagamento Confirmado**: "Seu pagamento foi confirmado! Aguardando início da preparação."
+- 👨‍🍳 **Pedido Aceito**: "Seu pedido foi aceito e já está sendo preparado pela equipe."
+- 🍕 **Preparando**: "Sua equipe está preparando seu pedido com carinho!"
+- 📦 **Pronto**: "Seu pedido está pronto e será entregue em breve!"
+- 🛵 **Saiu para Entrega**: "Seu pedido saiu para entrega! Em breve estará com você."
+- ✅ **Entregue**: "Seu pedido foi entregue com sucesso! Bom apetite!"
 
 **Tecnologia:**
 - Supabase Realtime para atualizações instantâneas
+- Toast notifications automáticas via `sonner`
+- Banner visual colorido para cada status
 - Polling de fallback a cada 10 segundos
 - Integração com sistema de pagamentos PIX
 - Timer de expiração de 5 minutos com limpeza automática
@@ -606,47 +625,40 @@ O sistema utiliza um mecanismo híbrido para garantir **100% de confiabilidade**
 
 **Antes de usar o sistema, é necessário aplicar as migrações SQL no banco de dados.**
 
-O diagnóstico revelou que apenas a tabela `pedidos_online` existe no banco. As seguintes tabelas e funções **precisam ser criadas**:
-
-- ❌ `pagamentos_online` — Auditoria de pagamentos PIX
-- ❌ `pedidos_online_audit` — Log de ações nos pedidos
-- ❌ `rastreamento_pedidos` — Histórico de status para rastreamento
-- ❌ `notificacoes_delivery` — Notificações pendentes do delivery
-- ❌ `feedback_clientes` — Avaliações dos clientes
-- ❌ `respostas_feedback` — Respostas da loja aos feedbacks
-- ❌ Funções RPC: `criar_pedido_online`, `confirmar_pagamento_online`, `adicionar_rastreamento`, `listar_rastreamento`, etc.
-- ❌ Configuração de `REPLICA IDENTITY FULL` para Supabase Realtime
-- ❌ Triggers automáticas de rastreamento e notificação
+O sistema utiliza **14 tabelas** para gerenciar pedidos online, pagamentos, auditoria, rastreamento e feedbacks.
 
 #### 🚀 Método 1 — Página de Migrações (Automático, Recomendado)
 
 Após o deploy da aplicação, acesse a página de migrações:
 
 ```
-https://seu-projeto.vercel.app/apply-migrations
+https://seu-projeto.vercel.app/apply-migrations?auto=1
 ```
 
 1. Abra a URL acima no navegador
-2. Clique em **"🚀 Aplicar Migrações"**
+2. As migrações serão aplicadas automaticamente
 3. Aguarde a execução (deve levar ~30 segundos)
-4. Verifique se as 6 tabelas foram criadas com sucesso
+4. Verifique se as 14 tabelas foram criadas com sucesso
 
-**Como funciona:** A página usa o cliente admin do Supabase (service_role key) configurado automaticamente pelo Lovable Cloud para executar as migrações SQL diretamente no banco de dados. Não é necessário acesso ao SQL Editor ou Supabase CLI.
+**Tabelas criadas automaticamente:**
+- `produtos`, `ingredientes`, `receitas` — Catálogo e fichas técnicas
+- `vendas`, `venda_itens` — Registro financeiro
+- `cupons`, `loja_config` — Descontos e configurações
+- `pedidos_online`, `pagamentos_online` — Pedidos e pagamentos
+- `pedidos_online_audit` — Auditoria de ações
+- `rastreamento_pedidos` — Histórico de status
+- `notificacoes_delivery` — Notificações do delivery
+- `feedback_clientes`, `respostas_feedback` — Avaliações
 
-#### 📋 Método 2 — Lovable SQL Editor
+**Como funciona:** A página usa o cliente admin do Supabase (service_role key) configurado na Vercel para executar as migrações SQL diretamente no banco de dados. Não é necessário acesso ao SQL Editor ou Supabase CLI.
 
-1. No editor Lovable, abra o **SQL Editor** do projeto
-2. Copie o conteúdo de: `supabase/migrations/0011_consolidated_migrations.sql`
-3. Cole no SQL Editor e clique em **RUN**
-4. Aguarde a execução completar (deve levar ~10 segundos)
-
-#### 📋 Método 3 — Supabase Dashboard
+#### 📋 Método 2 — Supabase Dashboard
 
 1. Acesse: https://supabase.com/dashboard/project/lstycewiltrbefrxicdx/sql
-2. Copie o conteúdo de: `supabase/migrations/0011_consolidated_migrations.sql`
+2. Copie o conteúdo de: `supabase/migrations/0014_master_setup.sql`
 3. Cole no SQL Editor e clique em **RUN**
 
-#### 📋 Método 4 — Supabase CLI (se disponível)
+#### 📋 Método 3 — Supabase CLI (se disponível)
 
 ```bash
 supabase login
@@ -656,54 +668,62 @@ supabase db push
 
 #### ✅ Validação após aplicação
 
-Execute esta query no SQL Editor para verificar se tudo foi aplicado corretamente:
+Após aplicar as migrações, acesse:
 
-```sql
--- Verificar tabelas na publicação do Realtime
-SELECT * FROM pg_publication_tables WHERE pubname = 'supabase_realtime';
-
--- Verificar replica identity
-SELECT relname, relreplident 
-FROM pg_class 
-WHERE relname IN ('pedidos_online', 'rastreamento_pedidos', 'notificacoes_delivery');
-
--- Verificar funções RPC
-SELECT routine_name FROM information_schema.routines 
-WHERE routine_schema = 'public' AND routine_name IN (
-  'criar_pedido_online', 'confirmar_pagamento_online', 'adicionar_rastreamento', 'listar_rastreamento',
-  'criar_notificacao_delivery', 'marcar_notificacao_analisada',
-  'listar_notificacoes_pendentes', 'criar_feedback', 'apply_migration_sql'
-);
+```
+https://seu-projeto.vercel.app/check-env
 ```
 
-**Resultado esperado:** 7 tabelas na publicação do Realtime e todas as funções listadas.
+Esta página verifica automaticamente:
+- ✅ `SUPABASE_URL` configurada
+- ✅ `SUPABASE_SERVICE_ROLE_KEY` configurada
+- ✅ `SUPABASE_PUBLISHABLE_KEY` configurada
+- ✅ Conexão com banco funcionando
+- ✅ 14 tabelas presentes
 
-#### 📊 O que a migração consolidada faz
+#### 📊 O que a migração faz
 
-O arquivo `0011_consolidated_migrations.sql` contém **todas as migrações 0007, 0008 e 0009** em um único script idempotente:
+O arquivo `0014_master_setup.sql` contém **todas as configurações necessárias** em um único script:
 
-1. **Migração 0007** — `REPLICA IDENTITY FULL` para Supabase Realtime em 7 tabelas
-2. **Migração 0008** — Tabelas de rastreamento e notificações com triggers automáticas
-3. **Migração 0009** — Descrição dos produtos nos itens do pedido
-4. **Funções RPC** — `criar_pedido_online`, `aceitar_pedido`, `recusar_pedido`, etc.
-5. **Triggers** — Rastreamento automático, notificações, updated_at, webhooks
-6. **RLS** — Políticas de segurança em todas as tabelas
-7. **Grants** — Permissões para `anon`, `authenticated` e `service_role`
+1. **14 tabelas** com todas as colunas, constraints e índices
+2. **Funções RPC** — `criar_pedido_online`, `confirmar_pagamento_online`, `aceitar_pedido`, `recusar_pedido`, etc.
+3. **Triggers** — Rastreamento automático, notificações, updated_at
+4. **RLS** — Políticas de segurança em todas as tabelas
+5. **Grants** — Permissões para `anon`, `authenticated` e `service_role`
+6. **Realtime** — `REPLICA IDENTITY FULL` para atualizações em tempo real
 
-### ✅ Aceite e Recusa de Pedidos
+### ✅ Confirmação de Pagamento e Aceitação de Pedido
 
-- Na tela de Delivery e PDV, o atendente pode **aceitar** ou **recusar** cada pedido
-- Ao aceitar, o pedido é automaticamente movido para "Em Preparo"
-- Ao recusar, o atendente deve informar o motivo da recusa
-- O cliente recebe notificação instantânea via rastreamento
-- O motivo da recusa é exibido ao cliente na página de rastreamento
-- Registro automático no audit log para auditoria
+Fluxo completo de confirmação manual de pagamento PIX:
+
+1. **Cliente paga via PIX**: Visualiza QR Code e realiza pagamento no app bancário
+2. **Proprietário confirma**: Clica em **"✅ Confirmar Pagamento"** na tela de Delivery
+   - Venda registrada no financeiro
+   - Estoque atualizado automaticamente
+   - Status muda para "Pagamento Confirmado"
+   - Cliente recebe notificação em tempo real
+3. **Proprietário aceita**: Clica em **"✅ Aceitar Pedido"**
+   - Pedido enviado para produção
+   - Status muda para "Pedido Recebido"
+   - Cliente recebe notificação: "Seu pedido foi aceito e já está sendo preparado"
+4. **Fluxo de produção**: `recebido → preparando → pronto → em_entrega → finalizado`
+
+**Botões disponíveis no Delivery:**
+- ✅ **Confirmar Pagamento** — Visível quando status é `aguardando_pagamento`
+- ✅ **Aceitar Pedido** — Visível quando status é `pago` (destaque verde)
+- ❌ **Recusar** — Disponível em qualquer momento antes da produção
 
 ### 📱 Experiência do Cliente
 
-- **Pedido aceito**: Mensagem de confirmação com "Estamos iniciando a preparação"
+- **Pagamento confirmado**: Banner verde com "✅ Pagamento Confirmado!"
+- **Pedido aceito**: Banner azul com "👨‍🍳 Pedido Aceito"
+- **Preparando**: Banner laranja com "🍕 Preparando Pedido"
+- **Pronto**: Banner ciano com "📦 Pedido Pronto"
+- **Saiu para entrega**: Banner roxo com "🛵 Saiu para Entrega"
+- **Entregue**: Banner verde com "✅ Pedido Entregue"
 - **Pedido recusado**: Motivo da recusa exibido claramente
 - **Pedido entregue**: Botão "Avaliar este pedido" para deixar feedback
+- **Notificações toast**: Aparecem automaticamente quando o status muda (sem refresh)
 - Atualizações em tempo real via Supabase Realtime
 - Interface responsiva para desktop, tablet e smartphone
 
