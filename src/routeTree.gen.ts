@@ -27,6 +27,7 @@ import { Route as AuthenticatedEstoqueRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedFinanceiroRouteImport } from './routes/_authenticated/financeiro'
 import { Route as AuthenticatedPdvRouteImport } from './routes/_authenticated/pdv'
 import { Route as AuthenticatedPrevisoesRouteImport } from './routes/_authenticated/previsoes'
+import { Route as ApiApplyMigrationsRouteImport } from './routes/api/apply-migrations'
 import { Route as PagamentoVendaIdRouteImport } from './routes/pagamento/$vendaId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -118,6 +119,11 @@ const AuthenticatedPrevisoesRoute = AuthenticatedPrevisoesRouteImport.update({
   path: '/previsoes',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiApplyMigrationsRoute = ApiApplyMigrationsRouteImport.update({
+  id: '/api/apply-migrations',
+  path: '/api/apply-migrations',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PagamentoVendaIdRoute = PagamentoVendaIdRouteImport.update({
   id: '/pagamento/$vendaId',
   path: '/pagamento/$vendaId',
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/pdv': typeof AuthenticatedPdvRoute
   '/previsoes': typeof AuthenticatedPrevisoesRoute
+  '/api/apply-migrations': typeof ApiApplyMigrationsRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
 }
 export interface FileRoutesByTo {
@@ -162,6 +169,7 @@ export interface FileRoutesByTo {
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/pdv': typeof AuthenticatedPdvRoute
   '/previsoes': typeof AuthenticatedPrevisoesRoute
+  '/api/apply-migrations': typeof ApiApplyMigrationsRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
 }
 export interface FileRoutesById {
@@ -184,6 +192,7 @@ export interface FileRoutesById {
   '/_authenticated/financeiro': typeof AuthenticatedFinanceiroRoute
   '/_authenticated/pdv': typeof AuthenticatedPdvRoute
   '/_authenticated/previsoes': typeof AuthenticatedPrevisoesRoute
+  '/api/apply-migrations': typeof ApiApplyMigrationsRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
 }
 export interface FileRouteTypes {
@@ -206,6 +215,7 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/pdv'
     | '/previsoes'
+    | '/api/apply-migrations'
     | '/pagamento/$vendaId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -226,6 +236,7 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/pdv'
     | '/previsoes'
+    | '/api/apply-migrations'
     | '/pagamento/$vendaId'
   id:
     | '__root__'
@@ -247,6 +258,7 @@ export interface FileRouteTypes {
     | '/_authenticated/financeiro'
     | '/_authenticated/pdv'
     | '/_authenticated/previsoes'
+    | '/api/apply-migrations'
     | '/pagamento/$vendaId'
   fileRoutesById: FileRoutesById
 }
@@ -259,6 +271,7 @@ export interface RootRouteChildren {
   LojaRoute: typeof LojaRoute
   RastrearRoute: typeof RastrearRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ApiApplyMigrationsRoute: typeof ApiApplyMigrationsRoute
   PagamentoVendaIdRoute: typeof PagamentoVendaIdRoute
 }
 
@@ -390,6 +403,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPrevisoesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/apply-migrations': {
+      id: '/api/apply-migrations'
+      path: '/api/apply-migrations'
+      fullPath: '/api/apply-migrations'
+      preLoaderRoute: typeof ApiApplyMigrationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pagamento/$vendaId': {
       id: '/pagamento/$vendaId'
       path: '/pagamento/$vendaId'
@@ -438,6 +458,7 @@ const rootRouteChildren: RootRouteChildren = {
   LojaRoute: LojaRoute,
   RastrearRoute: RastrearRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ApiApplyMigrationsRoute: ApiApplyMigrationsRoute,
   PagamentoVendaIdRoute: PagamentoVendaIdRoute,
 }
 export const routeTree = rootRouteImport
