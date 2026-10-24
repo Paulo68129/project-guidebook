@@ -1110,7 +1110,7 @@ supabase db push
 
 ## 👨‍💻 Equipe DEV.CODE
 
-**Projeto desenvolvido durante o Programa Serratec**
+**Projeto desenvolvido durante o curso de ADS na faculdade Unifeso**
 
 ### Desenvolvedores
 
