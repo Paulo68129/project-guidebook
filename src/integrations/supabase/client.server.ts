@@ -11,32 +11,41 @@ function isNewSupabaseApiKey(value: string): boolean {
 
 function createSupabaseFetch(supabaseKey: string): typeof fetch {
   return (input, init) => {
-    // Build headers from Request object if present
+    // Extract URL from input
+    let url: string;
+    let method = init?.method || 'GET';
+    let body = init?.body;
+
+    if (typeof Request !== 'undefined' && input instanceof Request) {
+      url = input.url;
+      method = input.method;
+      body = input.body;
+    } else {
+      url = typeof input === 'string' ? input : input.toString();
+    }
+
+    // Build clean headers - only apikey, no Authorization
+    const headers: Record<string, string> = {};
     const baseHeaders = (typeof Request !== 'undefined' && input instanceof Request)
       ? input.headers
       : (init?.headers || undefined);
 
-    const headers = new Headers(baseHeaders);
-
-    // For new-style keys, never send Authorization header — only use apikey.
-    // The Supabase JS client sets Authorization: Bearer <key>, which fails for sb_secret_ keys.
-    headers.delete('Authorization');
-    headers.set('apikey', supabaseKey);
-
-    // Build final init, replacing headers
-    const finalInit: RequestInit = { ...init, headers };
-
-    // If input is a Request, extract its properties and merge with finalInit
-    if (typeof Request !== 'undefined' && input instanceof Request) {
-      return fetch(input.url, {
-        method: input.method,
-        mode: input.mode,
-        credentials: input.credentials,
-        cache: input.cache,
-        ...finalInit,
-      });
+    if (baseHeaders) {
+      const iter = baseHeaders instanceof Headers ? baseHeaders : new Headers(baseHeaders);
+      for (const [key, value] of iter) {
+        if (key.toLowerCase() !== 'authorization') {
+          headers[key] = value;
+        }
+      }
     }
-    return fetch(input, finalInit);
+
+    headers['apikey'] = supabaseKey;
+
+    return fetch(url, {
+      method,
+      headers,
+      body: body as any,
+    });
   };
 }
 

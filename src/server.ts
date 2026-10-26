@@ -18,41 +18,73 @@ async function getServerEntry(): Promise<ServerEntry> {
   return serverEntryPromise;
 }
 
-// Use supabaseAdmin client to bypass RLS — server-side only
+// Server-side Supabase client — uses direct fetch with service role key to bypass RLS
 async function supabaseOp(table: string, op: "insert" | "update" | "delete" | "select", data?: any, filters?: { column: string; value: any }): Promise<any> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  let query = supabaseAdmin.from(table);
+  const SUPABASE_URL = process.env['SUPABASE_URL'];
+  const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'];
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error('Missing Supabase credentials');
+
+  const baseUrl = `${SUPABASE_URL}/rest/v1`;
+  const headers: Record<string, string> = {
+    'apikey': SUPABASE_SERVICE_ROLE_KEY,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+  };
 
   if (op === "select") {
-    if (filters) query = query.eq(filters.column, filters.value);
-    const { data: result, error } = await query.select();
-    if (error) throw new Error(`SELECT ${table}: ${error.message}`);
-    return result;
+    let url = `${baseUrl}/${table}?select=*`;
+    if (filters) url += `&${filters.column}=eq.${filters.value}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`SELECT ${table}: ${res.status} ${text}`);
+    }
+    return await res.json();
   }
 
   if (op === "insert") {
     const items = Array.isArray(data) ? data : [data];
-    const { data: result, error } = await query.insert(items).select();
-    if (error) throw new Error(`INSERT ${table}: ${error.message}`);
-    return result;
+    const res = await fetch(`${baseUrl}/${table}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(items),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`INSERT ${table}: ${res.status} ${text}`);
+    }
+    return await res.json();
   }
 
   if (op === "update" && filters) {
-    const { data: result, error } = await query.update(data).eq(filters.column, filters.value).select();
-    if (error) throw new Error(`UPDATE ${table}: ${error.message}`);
-    return result;
+    const res = await fetch(`${baseUrl}/${table}?${filters.column}=eq.${filters.value}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`UPDATE ${table}: ${res.status} ${text}`);
+    }
+    return await res.json();
   }
 
   if (op === "delete" && filters) {
-    const { error } = await query.delete().eq(filters.column, filters.value);
-    if (error) throw new Error(`DELETE ${table}: ${error.message}`);
+    const res = await fetch(`${baseUrl}/${table}?${filters.column}=eq.${filters.value}`, {
+      method: 'DELETE',
+      headers,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`DELETE ${table}: ${res.status} ${text}`);
+    }
     return { success: true };
   }
 
   throw new Error(`Unknown operation: ${op}`);
 }
 
-// Direct handler for /api/admin/save — uses REST API directly, bypassing RPC and schema cache
+// Direct handler for /api/admin/save — uses PostgreSQL direct connection, bypassing PostgREST and RLS
 async function handleAdminSave(request: Request): Promise<Response> {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });

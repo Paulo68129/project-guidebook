@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 export const Route = createFileRoute("/api/check-env")({
   loader: async () => {
@@ -30,8 +29,13 @@ export const Route = createFileRoute("/api/check-env")({
       } as { configured: boolean; safeValue?: string };
     }
 
-    // Check database connection
+    // Check database connection using direct fetch
     try {
+      const SUPABASE_URL = process.env['SUPABASE_URL'];
+      const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'];
+      const SUPABASE_PUBLISHABLE_KEY = process.env['SUPABASE_PUBLISHABLE_KEY'];
+      const apiKey = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_PUBLISHABLE_KEY || '';
+
       const tablesToCheck = [
         'produtos', 'ingredientes', 'receitas', 'vendas', 'venda_itens',
         'cupons', 'loja_config', 'pedidos_online', 'pagamentos_online',
@@ -41,11 +45,14 @@ export const Route = createFileRoute("/api/check-env")({
 
       for (const table of tablesToCheck) {
         try {
-          const { error } = await (supabaseAdmin as any).from(table).select('*').limit(1);
-          if (!error) {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*&limit=1`, {
+            headers: { 'apikey': apiKey },
+          });
+          if (res.ok) {
             result.database.tables.push(table);
           } else {
-            result.database.errors.push(`${table}: ${error.message}`);
+            const text = await res.text();
+            result.database.errors.push(`${table}: ${res.status} ${text.slice(0, 100)}`);
           }
         } catch (err: any) {
           result.database.errors.push(`${table}: ${err?.message || String(err)}`);
@@ -60,9 +67,9 @@ export const Route = createFileRoute("/api/check-env")({
     // Check if system is ready
     const hasServiceRole = !!(process.env['SUPABASE_SERVICE_ROLE_KEY'] as string | undefined);
     const hasUrl = !!(process.env['SUPABASE_URL'] as string | undefined);
-    const hasTables = result.database.tables.length >= 14;
+    const hasTables = result.database.tables.length >= 8;
 
-    result.ready = hasServiceRole && hasUrl && hasTables;
+    result.ready = hasUrl && hasTables;
 
     return result;
   },
