@@ -28,6 +28,7 @@ export async function upsertProduto(params: {
   _preco: number;
   _descricao: string | null;
   _foto_url: string | null;
+  _imagem_path: string | null;
   _ativo: boolean;
 }) {
   return adminCall("upsert_produto", params);

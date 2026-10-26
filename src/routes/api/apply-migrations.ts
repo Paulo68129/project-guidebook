@@ -807,13 +807,30 @@ function getMigrationChunks(): string[] {
     VALUES (1, 5.00, '18:00', '23:30', true, null)
     ON CONFLICT (id) DO NOTHING;
 
-    INSERT INTO storage.buckets (id, name, public)
-    VALUES ('produtos', 'produtos', true)
-    ON CONFLICT (id) DO NOTHING;
+    -- Storage bucket para fotos de produtos
+    INSERT INTO storage.buckets (id, name, public, allowed_mime_types, file_size_limit)
+    VALUES ('produtos', 'produtos', true, '{"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"}', 5242880)
+    ON CONFLICT (id) DO UPDATE SET
+      allowed_mime_types = EXCLUDED.allowed_mime_types,
+      file_size_limit = EXCLUDED.file_size_limit,
+      public = EXCLUDED.public;
 
+    -- Políticas RLS para o bucket produtos
     DROP POLICY IF EXISTS "fotos leitura catalogo" ON storage.objects;
     CREATE POLICY "fotos leitura catalogo" ON storage.objects
       FOR SELECT TO anon, authenticated USING (bucket_id = 'produtos');
+
+    DROP POLICY IF EXISTS "fotos insert authenticated" ON storage.objects;
+    CREATE POLICY "fotos insert authenticated" ON storage.objects
+      FOR INSERT TO authenticated WITH CHECK (bucket_id = 'produtos');
+
+    DROP POLICY IF EXISTS "fotos update authenticated" ON storage.objects;
+    CREATE POLICY "fotos update authenticated" ON storage.objects
+      FOR UPDATE TO authenticated USING (bucket_id = 'produtos');
+
+    DROP POLICY IF EXISTS "fotos delete authenticated" ON storage.objects;
+    CREATE POLICY "fotos delete authenticated" ON storage.objects
+      FOR DELETE TO authenticated USING (bucket_id = 'produtos');
 
     NOTIFY pgrst, 'reload schema';
     `,

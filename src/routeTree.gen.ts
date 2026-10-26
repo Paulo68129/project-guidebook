@@ -32,6 +32,7 @@ import { Route as ApiApplyMigrationsRouteImport } from './routes/api/apply-migra
 import { Route as ApiCheckEnvRouteImport } from './routes/api/check-env'
 import { Route as PagamentoVendaIdRouteImport } from './routes/pagamento/$vendaId'
 import { Route as ApiAdminSaveRouteImport } from './routes/api/admin/save'
+import { Route as ApiAdminUploadImageRouteImport } from './routes/api/admin/upload-image'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -147,6 +148,11 @@ const ApiAdminSaveRoute = ApiAdminSaveRouteImport.update({
   path: '/api/admin/save',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAdminUploadImageRoute = ApiAdminUploadImageRouteImport.update({
+  id: '/api/admin/upload-image',
+  path: '/api/admin/upload-image',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -171,6 +177,7 @@ export interface FileRoutesByFullPath {
   '/api/check-env': typeof ApiCheckEnvRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
   '/api/admin/save': typeof ApiAdminSaveRoute
+  '/api/admin/upload-image': typeof ApiAdminUploadImageRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -195,6 +202,7 @@ export interface FileRoutesByTo {
   '/api/check-env': typeof ApiCheckEnvRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
   '/api/admin/save': typeof ApiAdminSaveRoute
+  '/api/admin/upload-image': typeof ApiAdminUploadImageRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -221,6 +229,7 @@ export interface FileRoutesById {
   '/api/check-env': typeof ApiCheckEnvRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
   '/api/admin/save': typeof ApiAdminSaveRoute
+  '/api/admin/upload-image': typeof ApiAdminUploadImageRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -247,6 +256,7 @@ export interface FileRouteTypes {
     | '/api/check-env'
     | '/pagamento/$vendaId'
     | '/api/admin/save'
+    | '/api/admin/upload-image'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/api/check-env'
     | '/pagamento/$vendaId'
     | '/api/admin/save'
+    | '/api/admin/upload-image'
   id:
     | '__root__'
     | '/'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/api/check-env'
     | '/pagamento/$vendaId'
     | '/api/admin/save'
+    | '/api/admin/upload-image'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -312,6 +324,7 @@ export interface RootRouteChildren {
   ApiCheckEnvRoute: typeof ApiCheckEnvRoute
   PagamentoVendaIdRoute: typeof PagamentoVendaIdRoute
   ApiAdminSaveRoute: typeof ApiAdminSaveRoute
+  ApiAdminUploadImageRoute: typeof ApiAdminUploadImageRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -477,6 +490,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminSaveRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/admin/upload-image': {
+      id: '/api/admin/upload-image'
+      path: '/api/admin/upload-image'
+      fullPath: '/api/admin/upload-image'
+      preLoaderRoute: typeof ApiAdminUploadImageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -523,6 +543,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCheckEnvRoute: ApiCheckEnvRoute,
   PagamentoVendaIdRoute: PagamentoVendaIdRoute,
   ApiAdminSaveRoute: ApiAdminSaveRoute,
+  ApiAdminUploadImageRoute: ApiAdminUploadImageRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

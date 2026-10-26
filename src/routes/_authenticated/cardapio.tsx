@@ -5,12 +5,12 @@ import { toast } from "sonner";
 import { brl, custoProduto, ingredientesQ, produtosQ, receitasQ, type Produto } from "@/lib/data";
 import { useRole } from "@/hooks/useRole";
 import { upsertProduto, deleteProduto, deleteReceitasPorProduto, insertReceitas } from "@/lib/rpc-direct";
-import { compressImage } from "@/lib/local-storage";
+import { uploadImagemProduto } from "@/lib/image.functions";
 import { PageHeader, RouteError } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Image as ImageIcon, X, Upload, Trash2 } from "lucide-react";
+import { Image as ImageIcon, X, Upload, Trash2, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/cardapio")({
   head: () => ({ meta: [{ title: "Cardápio — PizzaStockAI" }, { name: "description", content: "Produtos, preços, receitas e margem de lucro." }, { property: "og:title", content: "Cardápio — PizzaStockAI" }, { property: "og:description", content: "Cardápio e fichas técnicas da pizzaria." }] }),
@@ -31,9 +31,22 @@ const FOTOS_PADRAO: Record<string, string> = {
   combo: "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&h=300&fit=crop",
 };
 
-function getFoto(p: { foto_url?: string | null; categoria?: string }) {
+// Constrói a URL pública do Supabase Storage a partir do imagem_path
+function getStorageUrl(imagemPath: string): string {
+  const supabaseUrl = import.meta.env['VITE_SUPABASE_URL'];
+  if (!supabaseUrl) return '';
+  // Remove trailing slash from URL
+  const baseUrl = supabaseUrl.replace(/\/$/, '');
+  return `${baseUrl}/storage/v1/object/public/produtos/${imagemPath}`;
+}
+
+function getFoto(p: { foto_url?: string | null; imagem_path?: string | null; categoria?: string }) {
   const cat = p.categoria?.toLowerCase();
-  return p.foto_url || (cat ? FOTOS_PADRAO[cat] : undefined) || "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&h=300&fit=crop";
+  // Prioridade: 1) base64 data URL (foto_url), 2) imagem do storage (imagem_path), 3) URL externa (foto_url), 4) foto padrão
+  if (p.foto_url?.startsWith('data:')) return p.foto_url;
+  if (p.imagem_path) return getStorageUrl(p.imagem_path);
+  if (p.foto_url) return p.foto_url;
+  return (cat ? FOTOS_PADRAO[cat] : undefined) || "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&h=300&fit=crop";
 }
 
 function Cardapio() {
@@ -42,25 +55,41 @@ function Cardapio() {
   const { data: ings } = useSuspenseQuery(ingredientesQ);
   const { isManager } = useRole();
   const qc = useQueryClient();
-  const [ed, setEd] = useState<{ id?: string; nome: string; categoria: string; preco: string; descricao: string; foto_url: string; ativo: boolean; linhas: Linha[] } | null>(null);
+  const [ed, setEd] = useState<{ id?: string; nome: string; categoria: string; preco: string; descricao: string; foto_url: string; imagem_path: string | null; ativo: boolean; linhas: Linha[] } | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   function abrir(p?: Produto) {
-    setEd(p ? { id: p.id, nome: p.nome, categoria: p.categoria, preco: String(p.preco), descricao: p.descricao ?? "", foto_url: p.foto_url ?? "", ativo: p.ativo, linhas: receitas.filter((r) => r.produto_id === p.id).map((r) => ({ ingrediente_id: r.ingrediente_id, quantidade: String(r.quantidade) })) }
-      : { nome: "", categoria: "pizza", preco: "0", descricao: "", foto_url: "", ativo: true, linhas: [] });
+    setEd(p ? { id: p.id, nome: p.nome, categoria: p.categoria, preco: String(p.preco), descricao: p.descricao ?? "", foto_url: p.foto_url ?? "", imagem_path: (p as any).imagem_path || null, ativo: p.ativo, linhas: receitas.filter((r) => r.produto_id === p.id).map((r) => ({ ingrediente_id: r.ingrediente_id, quantidade: String(r.quantidade) })) }
+      : { nome: "", categoria: "pizza", preco: "0", descricao: "", foto_url: "", imagem_path: null, ativo: true, linhas: [] });
   }
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !ed) return;
-    try {
-      const base64 = await compressImage(file, 400, 0.7);
-      setEd({ ...ed, foto_url: base64 });
-      toast.success("Imagem adicionada!");
-    } catch (err: any) {
-      toast.error(`Erro ao carregar imagem: ${err.message}`);
-    }
-    // Reset input
+    // Reset input immediately
     e.target.value = "";
+    setUploading(true);
+    try {
+      // Se já temos um produto salvo, faz upload e associa diretamente
+      if (ed.id) {
+        const result = await uploadImagemProduto(file, ed.id);
+        if (result) {
+          setEd({ ...ed, imagem_path: result.path });
+          toast.success("Imagem enviada com sucesso!");
+        }
+      } else {
+        // Produto novo — faz upload sem produto_id primeiro, depois associa ao salvar
+        const result = await uploadImagemProduto(file);
+        if (result) {
+          setEd({ ...ed, imagem_path: result.path });
+          toast.success("Imagem enviada! Salve o produto para associar.");
+        }
+      }
+    } catch (err: any) {
+      toast.error(`Erro ao enviar imagem: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function excluirProduto(id: string) {
@@ -92,6 +121,7 @@ function Cardapio() {
         _preco: Number(ed.preco) || 0,
         _descricao: ed.descricao?.trim() || null,
         _foto_url: ed.foto_url?.trim() || null,
+        _imagem_path: ed.imagem_path || null,
         _ativo: ed.ativo
       });
 
@@ -191,37 +221,53 @@ function Cardapio() {
             <div className="space-y-3">
               {/* Preview da foto com upload */}
               <div className="relative h-44 overflow-hidden rounded-xl bg-muted">
-                {ed.foto_url ? (
-                  <img
-                    src={ed.foto_url}
-                    alt="Preview"
-                    className="h-full w-full object-cover"
-                    onError={() => setEd({ ...ed, foto_url: "" })}
-                  />
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-                    <ImageIcon className="h-10 w-10 opacity-50" />
-                    <span className="text-sm">Sem foto</span>
-                  </div>
-                )}
-                {ed.foto_url && (
+                {(() => {
+                  // Construir objeto para getFoto com as informações do formulário
+                  const fotoObj = { foto_url: ed.foto_url || null, imagem_path: ed.imagem_path || null, categoria: ed.categoria };
+                  const fotoSrc = getFoto(fotoObj);
+                  const hasImage = ed.foto_url || ed.imagem_path;
+                  return hasImage ? (
+                    <img
+                      src={fotoSrc}
+                      alt="Preview"
+                      className="h-full w-full object-cover"
+                      onError={() => setEd({ ...ed, foto_url: "", imagem_path: null })}
+                    />
+                  ) : (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                      <ImageIcon className="h-10 w-10 opacity-50" />
+                      <span className="text-sm">Sem foto</span>
+                    </div>
+                  );
+                })()}
+                {ed.foto_url && !ed.foto_url.startsWith('data:') && (
                   <button
                     onClick={() => setEd({ ...ed, foto_url: "" })}
                     className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white hover:bg-black/70"
-                    title="Remover foto"
+                    title="Remover URL da foto"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+                {ed.imagem_path && (
+                  <button
+                    onClick={() => setEd({ ...ed, imagem_path: null })}
+                    className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white hover:bg-black/70"
+                    title="Remover imagem do storage"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 )}
                 {/* Upload overlay */}
-                <label className="absolute bottom-2 right-2 cursor-pointer rounded-lg bg-primary/90 px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary">
-                  <Upload className="mr-1 inline h-3 w-3" />
-                  Upload
+                <label className={`absolute bottom-2 right-2 cursor-pointer rounded-lg bg-primary/90 px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary ${uploading ? 'pointer-events-none opacity-50' : ''}`}>
+                  {uploading ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : <Upload className="mr-1 inline h-3 w-3" />}
+                  {uploading ? 'Enviando...' : 'Upload'}
                   <input
                     type="file"
                     accept="image/*"
                     className="hidden"
                     onChange={handleImageUpload}
+                    disabled={uploading}
                   />
                 </label>
               </div>

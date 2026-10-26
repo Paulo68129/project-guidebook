@@ -20,9 +20,20 @@ const FOTOS_PADRAO: Record<string, string> = {
   combo: "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&h=300&fit=crop",
 };
 
-function getFoto(p: { foto_url?: string | null; categoria?: string }) {
+// Constrói a URL pública do Supabase Storage a partir do imagem_path
+function getStorageUrl(imagemPath: string): string {
+  const supabaseUrl = import.meta.env['VITE_SUPABASE_URL'];
+  if (!supabaseUrl) return '';
+  const baseUrl = supabaseUrl.replace(/\/$/, '');
+  return `${baseUrl}/storage/v1/object/public/produtos/${imagemPath}`;
+}
+
+function getFoto(p: { foto_url?: string | null; imagem_path?: string | null; categoria?: string }) {
   const cat = p.categoria?.toLowerCase();
-  return p.foto_url || (cat ? FOTOS_PADRAO[cat] : undefined) || "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&h=300&fit=crop";
+  // Prioridade: 1) imagem do storage (imagem_path), 2) URL externa (foto_url), 3) foto padrão
+  if (p.imagem_path) return getStorageUrl(p.imagem_path);
+  if (p.foto_url) return p.foto_url;
+  return (cat ? FOTOS_PADRAO[cat] : undefined) || "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&h=300&fit=crop";
 }
 
 export const Route = createFileRoute("/loja")({
