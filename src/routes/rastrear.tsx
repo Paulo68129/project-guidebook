@@ -244,8 +244,8 @@ function RastrearPage() {
     };
   }, [pedido?.id, searchToken]);
 
-  // Se veio com token na URL, busca automaticamente
-  const urlParams = new URLSearchParams(window.location.search);
+  // Se veio com token na URL, busca automaticamente (apenas no cliente)
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams('');
   const urlToken = urlParams.get("token");
 
   useEffect(() => {

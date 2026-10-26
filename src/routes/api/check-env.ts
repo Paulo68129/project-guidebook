@@ -26,7 +26,6 @@ export const Route = createFileRoute("/api/check-env")({
       const value = process.env[varName] as string | undefined;
       result.envVars[varName] = {
         configured: !!value,
-        // Never expose any part of the key value - only show length for verification
         safeValue: value ? `*** (${value.length} chars)` : undefined,
       } as { configured: boolean; safeValue?: string };
     }
@@ -62,7 +61,7 @@ export const Route = createFileRoute("/api/check-env")({
     const hasServiceRole = !!(process.env['SUPABASE_SERVICE_ROLE_KEY'] as string | undefined);
     const hasUrl = !!(process.env['SUPABASE_URL'] as string | undefined);
     const hasTables = result.database.tables.length >= 14;
-    
+
     result.ready = hasServiceRole && hasUrl && hasTables;
 
     return result;

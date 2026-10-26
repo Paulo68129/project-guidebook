@@ -31,6 +31,7 @@ import { Route as AuthenticatedPrevisoesRouteImport } from './routes/_authentica
 import { Route as ApiApplyMigrationsRouteImport } from './routes/api/apply-migrations'
 import { Route as ApiCheckEnvRouteImport } from './routes/api/check-env'
 import { Route as PagamentoVendaIdRouteImport } from './routes/pagamento/$vendaId'
+import { Route as ApiAdminSaveRouteImport } from './routes/api/admin/save'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -141,6 +142,11 @@ const PagamentoVendaIdRoute = PagamentoVendaIdRouteImport.update({
   path: '/pagamento/$vendaId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAdminSaveRoute = ApiAdminSaveRouteImport.update({
+  id: '/api/admin/save',
+  path: '/api/admin/save',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -164,6 +170,7 @@ export interface FileRoutesByFullPath {
   '/api/apply-migrations': typeof ApiApplyMigrationsRoute
   '/api/check-env': typeof ApiCheckEnvRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
+  '/api/admin/save': typeof ApiAdminSaveRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -187,6 +194,7 @@ export interface FileRoutesByTo {
   '/api/apply-migrations': typeof ApiApplyMigrationsRoute
   '/api/check-env': typeof ApiCheckEnvRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
+  '/api/admin/save': typeof ApiAdminSaveRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -212,6 +220,7 @@ export interface FileRoutesById {
   '/api/apply-migrations': typeof ApiApplyMigrationsRoute
   '/api/check-env': typeof ApiCheckEnvRoute
   '/pagamento/$vendaId': typeof PagamentoVendaIdRoute
+  '/api/admin/save': typeof ApiAdminSaveRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -237,6 +246,7 @@ export interface FileRouteTypes {
     | '/api/apply-migrations'
     | '/api/check-env'
     | '/pagamento/$vendaId'
+    | '/api/admin/save'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -260,6 +270,7 @@ export interface FileRouteTypes {
     | '/api/apply-migrations'
     | '/api/check-env'
     | '/pagamento/$vendaId'
+    | '/api/admin/save'
   id:
     | '__root__'
     | '/'
@@ -284,6 +295,7 @@ export interface FileRouteTypes {
     | '/api/apply-migrations'
     | '/api/check-env'
     | '/pagamento/$vendaId'
+    | '/api/admin/save'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -299,6 +311,7 @@ export interface RootRouteChildren {
   ApiApplyMigrationsRoute: typeof ApiApplyMigrationsRoute
   ApiCheckEnvRoute: typeof ApiCheckEnvRoute
   PagamentoVendaIdRoute: typeof PagamentoVendaIdRoute
+  ApiAdminSaveRoute: typeof ApiAdminSaveRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -457,6 +470,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PagamentoVendaIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/admin/save': {
+      id: '/api/admin/save'
+      path: '/api/admin/save'
+      fullPath: '/api/admin/save'
+      preLoaderRoute: typeof ApiAdminSaveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -502,6 +522,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiApplyMigrationsRoute: ApiApplyMigrationsRoute,
   ApiCheckEnvRoute: ApiCheckEnvRoute,
   PagamentoVendaIdRoute: PagamentoVendaIdRoute,
+  ApiAdminSaveRoute: ApiAdminSaveRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

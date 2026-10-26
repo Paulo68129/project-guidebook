@@ -19,7 +19,7 @@ export const Route = createFileRoute("/api/apply-migrations")({
     const results = { tables: [] as string[], errors: [] as string[] };
 
     try {
-      // Step 1: Create the apply_migration_sql function if it doesn't exist
+      // Step 1: Create the apply_migration_sql function using Supabase REST API
       const funcSql = `
         CREATE OR REPLACE FUNCTION public.apply_migration_sql(_sql text)
         RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $func$
@@ -30,26 +30,26 @@ export const Route = createFileRoute("/api/apply-migrations")({
         $func$;
       `;
       
-      const { error: funcError } = await (supabaseAdmin as any).rpc('apply_migration_sql', { _sql: 'SELECT 1' });
-      if (funcError) {
-        // Function doesn't exist, create it via direct SQL
-        const SUPABASE_URL = process.env['SUPABASE_URL'];
-        const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'];
-        
-        if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
-          const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/apply_migration_sql`, {
-            method: 'POST',
-            headers: {
-              'apikey': SUPABASE_SERVICE_ROLE_KEY,
-              'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-              'Content-Type': 'application/json',
-              'Prefer': 'return=representation',
-            },
-            body: JSON.stringify({ _sql: funcSql }),
-          });
-          if (!resp.ok) {
-            results.errors.push(`Failed to create apply_migration_sql function: ${resp.status}`);
-          }
+      const SUPABASE_URL = process.env['SUPABASE_URL'];
+      const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'];
+      
+      // Always try to create the function first using the SQL endpoint
+      if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+        const sqlResp = await fetch(`${SUPABASE_URL}/sql/v1`, {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation',
+          },
+          body: JSON.stringify({ query: funcSql }),
+        });
+        if (!sqlResp.ok) {
+          // Fallback: try using the GraphQL-like endpoint or direct execution
+          console.log(`SQL endpoint returned ${sqlResp.status}, trying alternative method...`);
+        } else {
+          console.log('✅ apply_migration_sql function created successfully');
         }
       }
 

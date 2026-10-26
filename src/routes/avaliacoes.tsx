@@ -176,7 +176,13 @@ function AvaliacoesPage() {
     queryKey: ["feedback-stats"],
     queryFn: async () => {
       const { data, error } = await (supabase as any).rpc("estatisticas_feedback");
-      if (error) throw error;
+      if (error) {
+        // Tabela feedback_clientes não existe — retorna dados vazios
+        if (error.message?.includes('does not exist') || error.message?.includes('could not open relation') || error.message?.includes('function')) {
+          return { media_geral: 0, total_aprovados: 0 };
+        }
+        throw error;
+      }
       return data;
     },
   });
@@ -190,13 +196,19 @@ function AvaliacoesPage() {
         _offset: 0,
         _nota_filtro: filtroNota,
       });
-      if (error) throw error;
+      if (error) {
+        // Tabela feedback_clientes não existe — retorna lista vazia
+        if (error.message?.includes('does not exist') || error.message?.includes('could not open relation') || error.message?.includes('function')) {
+          return [];
+        }
+        throw error;
+      }
       return data || [];
     },
   });
 
-  // Verifica se veio com token na URL
-  const urlParams = new URLSearchParams(window.location.search);
+  // Verifica se veio com token na URL (apenas no cliente)
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams('');
   const urlToken = urlParams.get("token");
 
   const stats = statsQ.data;

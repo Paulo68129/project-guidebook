@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { brl, diasParaVencer, ingredientesQ, num, type Ingrediente } from "@/lib/data";
+import { upsertIngrediente, darEntradaIngrediente, deleteIngrediente } from "@/lib/rpc-direct";
 import { useRole } from "@/hooks/useRole";
 import { PageHeader, RouteError } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -31,8 +31,15 @@ function Estoque() {
 
   async function salvar() {
     if (!form) return;
-    const row = { nome: form.nome, unidade: form.unidade, quantidade: Number(form.quantidade), estoque_minimo: Number(form.estoque_minimo), custo_unitario: Number(form.custo_unitario), validade: form.validade || null };
-    const { error } = form.id ? await supabase.from("ingredientes").update(row).eq("id", form.id) : await supabase.from("ingredientes").insert(row);
+    const { data, error } = await upsertIngrediente({
+      _id: form.id || null,
+      _nome: form.nome,
+      _unidade: form.unidade,
+      _quantidade: Number(form.quantidade),
+      _estoque_minimo: Number(form.estoque_minimo),
+      _custo_unitario: Number(form.custo_unitario),
+      _validade: form.validade || null
+    });
     if (error) { toast.error(error.message); return; }
     toast.success("Ingrediente salvo"); setForm(null); refresh();
   }
@@ -40,13 +47,13 @@ function Estoque() {
     if (!entrada) return;
     const q = Number(entrada.qtd);
     if (!(q > 0)) { toast.error("Quantidade inválida"); return; }
-    const { error } = await supabase.from("ingredientes").update({ quantidade: Number(entrada.ing.quantidade) + q }).eq("id", entrada.ing.id);
+    const { error } = await darEntradaIngrediente(entrada.ing.id, q);
     if (error) { toast.error(error.message); return; }
     toast.success("Entrada registrada"); setEntrada(null); refresh();
   }
   async function excluir(id: string) {
     if (!confirm("Excluir este ingrediente?")) return;
-    const { error } = await supabase.from("ingredientes").delete().eq("id", id);
+    const { error } = await deleteIngrediente(id);
     if (error) { toast.error(error.message); return; }
     refresh();
   }

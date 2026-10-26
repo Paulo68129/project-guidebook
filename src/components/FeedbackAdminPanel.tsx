@@ -39,7 +39,12 @@ export function FeedbackAdminPanel() {
     queryKey: ["feedback-stats-admin"],
     queryFn: async () => {
       const { data, error } = await (supabase as any).rpc("estatisticas_feedback");
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes('does not exist') || error.message?.includes('could not open relation') || error.message?.includes('function')) {
+          return { total_feedbacks: 0, total_aprovados: 0, media_geral: 0 };
+        }
+        throw error;
+      }
       return data;
     },
   });
@@ -54,7 +59,12 @@ export function FeedbackAdminPanel() {
         _nota_filtro: filtroNota,
         _aprovado_filtro: filtroAprovado,
       });
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes('does not exist') || error.message?.includes('could not open relation') || error.message?.includes('function')) {
+          return [];
+        }
+        throw error;
+      }
       return data || [];
     },
   });

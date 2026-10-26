@@ -11,21 +11,32 @@ function isNewSupabaseApiKey(value: string): boolean {
 
 function createSupabaseFetch(supabaseKey: string): typeof fetch {
   return (input, init) => {
-    const headers = new Headers(
-      typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined,
-    );
+    // Build headers from Request object if present
+    const baseHeaders = (typeof Request !== 'undefined' && input instanceof Request)
+      ? input.headers
+      : (init?.headers || undefined);
 
-    if (init?.headers) {
-      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
-    }
+    const headers = new Headers(baseHeaders);
 
-    // New Supabase API keys are opaque strings, not bearer JWTs.
-    if (isNewSupabaseApiKey(supabaseKey) && headers.get('Authorization') === `Bearer ${supabaseKey}`) {
-      headers.delete('Authorization');
-    }
-
+    // For new-style keys, never send Authorization header — only use apikey.
+    // The Supabase JS client sets Authorization: Bearer <key>, which fails for sb_secret_ keys.
+    headers.delete('Authorization');
     headers.set('apikey', supabaseKey);
-    return fetch(input, { ...init, headers });
+
+    // Build final init, replacing headers
+    const finalInit: RequestInit = { ...init, headers };
+
+    // If input is a Request, extract its properties and merge with finalInit
+    if (typeof Request !== 'undefined' && input instanceof Request) {
+      return fetch(input.url, {
+        method: input.method,
+        mode: input.mode,
+        credentials: input.credentials,
+        cache: input.cache,
+        ...finalInit,
+      });
+    }
+    return fetch(input, finalInit);
   };
 }
 
@@ -43,7 +54,12 @@ function createSupabaseAdminClient() {
     throw new Error(message);
   }
 
-  return createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  // For new-style keys (sb_secret_ / sb_publishable_), pass a dummy key to createClient
+  // so the Supabase JS client doesn't reject an empty key. The custom fetch wrapper
+  // will replace the Authorization header with the correct apikey header.
+  const clientKey = isNewSupabaseApiKey(SUPABASE_SERVICE_ROLE_KEY) ? 'dummy-key' : SUPABASE_SERVICE_ROLE_KEY;
+
+  return createClient<Database>(SUPABASE_URL, clientKey, {
     global: {
       fetch: createSupabaseFetch(SUPABASE_SERVICE_ROLE_KEY),
     },

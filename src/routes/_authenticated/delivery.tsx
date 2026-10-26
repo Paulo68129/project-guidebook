@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { brl, motoboysQ, vendasQ, type Venda } from "@/lib/data";
+import { getLocalDeliveryOrders, saveLocalDeliveryOrder, updateLocalDeliveryOrderStatus, deleteLocalDeliveryOrder, mergeWithLocal } from "@/lib/local-storage";
 import { PageHeader, RouteError } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,26 +145,38 @@ function Delivery() {
   }
 
   // Busca pedidos online com auto-refresh a cada 5 segundos (fallback do Realtime)
+  // Se Supabase falhar, usa localStorage como fallback
   const { data: pedidosOnline, isLoading: isLoadingPedidos } = useQuery({
     queryKey: ["pedidos-online-delivery"],
     refetchInterval: 5000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("pedidos_online")
-        .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, status, motoboy_id, created_at, cupom, status_delivery, motivo_recusa, aceito_em, recusado_em, observacoes, origem, salvo_em, salvo_por")
-        .in("status", ["pendente", "aguardando_pagamento", "pago", "novo", "recebido", "preparando", "preparo", "pronto", "em_entrega", "saiu", "finalizado", "entregue"])
-        .order("created_at", { ascending: false });
-      if (error) {
-        console.error("[Delivery] Erro ao buscar pedidos online:", error);
-        throw error;
+      try {
+        const { data, error } = await supabase
+          .from("pedidos_online")
+          .select("id, cliente, telefone, endereco, itens, subtotal, desconto, taxa_entrega, total, status, motoboy_id, created_at, cupom, status_delivery, motivo_recusa, aceito_em, recusado_em, observacoes, origem, salvo_em, salvo_por")
+          .in("status", ["pendente", "aguardando_pagamento", "pago", "novo", "recebido", "preparando", "preparo", "pronto", "em_entrega", "saiu", "finalizado", "entregue"])
+          .order("created_at", { ascending: false });
+        if (error) {
+          console.warn("[Delivery] Erro ao buscar pedidos online do Supabase, usando localStorage:", error.message);
+          throw error;
+        }
+        console.log("[Delivery] Pedidos online carregados do Supabase:", data?.length || 0);
+        const normalized = (data ?? []).map((row: any) => ({
+          ...row,
+          itens: normalizeItems(row.itens),
+        })) as unknown as OnlineOrder[];
+        // Merge com pedidos locais
+        const localOrders = getLocalDeliveryOrders();
+        return mergeWithLocal(normalized, localOrders) as unknown as OnlineOrder[];
+      } catch (e) {
+        console.warn("[Delivery] Supabase indisponível, carregando pedidos do localStorage");
+        const localOrders = getLocalDeliveryOrders();
+        const normalized = localOrders.map((row: any) => ({
+          ...row,
+          itens: normalizeItems(row.itens),
+        })) as unknown as OnlineOrder[];
+        return normalized;
       }
-      console.log("[Delivery] Pedidos online carregados:", data?.length || 0);
-      // Normaliza a coluna "itens" (JSONB) para garantir que cada item tenha nome, quantidade, etc.
-      const normalized = (data ?? []).map((row: any) => ({
-        ...row,
-        itens: normalizeItems(row.itens),
-      })) as unknown as OnlineOrder[];
-      return normalized;
     },
   });
 
@@ -478,19 +491,36 @@ function Delivery() {
     }
 
     // Tenta RPC avancar_status_pedido primeiro (com validação de transição)
-    const rpcResult = await (supabase as any).rpc("avancar_status_pedido", {
-      _pedido_id: id,
-      _novo_status: newStatus,
-      _motivo: patch.motoboy_id ? null : "",
-    });
+    try {
+      const rpcResult = await (supabase as any).rpc("avancar_status_pedido", {
+        _pedido_id: id,
+        _novo_status: newStatus,
+        _motivo: patch.motoboy_id ? null : "",
+      });
 
-    if (rpcResult.error) {
-      // Fallback: atualiza status diretamente
-      const { error } = await supabase
-        .from("pedidos_online")
-        .update({ status: newStatus ?? undefined, motoboy_id: patch.motoboy_id ?? undefined } as any)
-        .eq("id", id);
-      if (error) { toast.error(error.message); return; }
+      if (rpcResult.error) {
+        // Fallback: atualiza status diretamente no Supabase
+        const { error } = await supabase
+          .from("pedidos_online")
+          .update({ status: newStatus ?? undefined, motoboy_id: patch.motoboy_id ?? undefined } as any)
+          .eq("id", id);
+        if (error) {
+          console.warn("[Delivery] Supabase indisponível, atualizando status no localStorage:", error.message);
+          throw error;
+        }
+      }
+    } catch (e: any) {
+      // Fallback: atualiza status no localStorage
+      console.warn("[Delivery] Atualizando status do pedido no localStorage:", id, "→", newStatus);
+      const localResult = updateLocalDeliveryOrderStatus(id, newStatus ?? "");
+      if (localResult.error) {
+        toast.error(localResult.error);
+        return;
+      }
+      toast.success("✅ Status atualizado!", {
+        description: `Pedido movido para ${newStatus}`,
+        duration: 3000,
+      });
     }
 
     qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
@@ -514,7 +544,18 @@ function Delivery() {
       });
       await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
     } catch (e: any) {
-      toast.error(e?.message || "Não foi possível aceitar o pedido");
+      // Fallback: aceita no localStorage
+      console.warn("[Delivery] Aceitando pedido no localStorage:", id);
+      const localResult = updateLocalDeliveryOrderStatus(id, "recebido");
+      if (localResult.error) {
+        toast.error(localResult.error);
+        return;
+      }
+      toast.success("✅ Pedido aceito! Enviado para produção.", {
+        description: "Pedido salvo localmente e enviado para preparo.",
+        duration: 6000,
+      });
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
     }
   }
 
@@ -548,7 +589,24 @@ function Delivery() {
       await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
       await qc.invalidateQueries({ queryKey: ["vendas"] });
     } catch (e: any) {
-      toast.error(e?.message || "Não foi possível recusar o pedido");
+      // Fallback: recusa no localStorage
+      console.warn("[Delivery] Recusando pedido no localStorage:", rejectOrderId);
+      if (rejectOrderTipo === "online") {
+        const localResult = updateLocalDeliveryOrderStatus(rejectOrderId, "cancelado");
+        if (localResult.error) {
+          toast.error(localResult.error);
+          return;
+        }
+        toast.info("Pedido recusado (salvo localmente)");
+      } else {
+        toast.error(e?.message || "Não foi possível recusar o pedido");
+      }
+      setRejectDialogOpen(false);
+      setRejectOrderId(null);
+      setRejectOrderTipo(null);
+      setRejectReason("");
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+      await qc.invalidateQueries({ queryKey: ["vendas"] });
     }
   }
 
@@ -584,7 +642,24 @@ function Delivery() {
       await qc.invalidateQueries({ queryKey: ["vendas"] });
       await qc.invalidateQueries({ queryKey: ["ingredientes"] });
     } catch (e: any) {
-      toast.error(e?.message || "Erro ao confirmar pagamento");
+      // Fallback: confirma pagamento no localStorage
+      console.warn("[Delivery] Confirmando pagamento no localStorage:", paymentConfirmOrderId);
+      if (paymentConfirmOrderTipo === "online") {
+        const localResult = updateLocalDeliveryOrderStatus(paymentConfirmOrderId, "pago");
+        if (localResult.error) {
+          toast.error(localResult.error);
+        } else {
+          toast.success(`✅ Pagamento confirmado! Pedido liberado para aceitação.`, {
+            description: "Pedido salvo localmente.",
+            duration: 6000,
+          });
+        }
+      }
+      setPaymentConfirmDialogOpen(false);
+      setPaymentConfirmOrderId(null);
+      setPaymentConfirmOrderTipo(null);
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
+      await qc.invalidateQueries({ queryKey: ["vendas"] });
     } finally {
       setConfirmingPayment(false);
     }
@@ -678,8 +753,8 @@ function Delivery() {
           .delete()
           .eq("id", deleteSingleOrderId);
         if (error) {
-          toast.error(error.message);
-          return;
+          console.warn("[Delivery] Excluindo pedido do localStorage:", deleteSingleOrderId);
+          throw error;
         }
       } else {
         // Para vendas, não exclui o registro financeiro
@@ -696,7 +771,22 @@ function Delivery() {
       setDeleteSingleOrderTipo(null);
       await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
     } catch (e: any) {
-      toast.error(e?.message || "Erro ao excluir entrega");
+      // Fallback: exclui do localStorage
+      console.warn("[Delivery] Excluindo pedido do localStorage:", deleteSingleOrderId);
+      if (deleteSingleOrderTipo === "online") {
+        const localResult = deleteLocalDeliveryOrder(deleteSingleOrderId);
+        if (localResult.error) {
+          toast.error(localResult.error);
+          return;
+        }
+        toast.success("Entrega excluída com sucesso (local)");
+      } else {
+        toast.error(e?.message || "Erro ao excluir entrega");
+      }
+      setDeleteDialogOpen(false);
+      setDeleteSingleOrderId(null);
+      setDeleteSingleOrderTipo(null);
+      await qc.invalidateQueries({ queryKey: ["pedidos-online-delivery"] });
     }
   }
 

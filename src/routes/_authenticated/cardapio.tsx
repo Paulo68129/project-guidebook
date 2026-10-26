@@ -2,14 +2,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { brl, custoProduto, ingredientesQ, produtosQ, receitasQ, type Produto } from "@/lib/data";
 import { useRole } from "@/hooks/useRole";
+import { upsertProduto, deleteProduto, deleteReceitasPorProduto, insertReceitas } from "@/lib/rpc-direct";
+import { compressImage } from "@/lib/local-storage";
 import { PageHeader, RouteError } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Image as ImageIcon, X } from "lucide-react";
+import { Image as ImageIcon, X, Upload, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/cardapio")({
   head: () => ({ meta: [{ title: "Cardápio — PizzaStockAI" }, { name: "description", content: "Produtos, preços, receitas e margem de lucro." }, { property: "og:title", content: "Cardápio — PizzaStockAI" }, { property: "og:description", content: "Cardápio e fichas técnicas da pizzaria." }] }),
@@ -48,20 +49,91 @@ function Cardapio() {
       : { nome: "", categoria: "pizza", preco: "0", descricao: "", foto_url: "", ativo: true, linhas: [] });
   }
 
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !ed) return;
+    try {
+      const base64 = await compressImage(file, 400, 0.7);
+      setEd({ ...ed, foto_url: base64 });
+      toast.success("Imagem adicionada!");
+    } catch (err: any) {
+      toast.error(`Erro ao carregar imagem: ${err.message}`);
+    }
+    // Reset input
+    e.target.value = "";
+  }
+
+  async function excluirProduto(id: string) {
+    if (!confirm("Tem certeza que deseja excluir este produto?")) return;
+    try {
+      const { error } = await deleteProduto(id);
+      if (error) {
+        toast.error(`Erro ao excluir: ${error.message}`);
+        return;
+      }
+      toast.success("Produto excluído!");
+      qc.invalidateQueries({ queryKey: ["produtos"] });
+      qc.invalidateQueries({ queryKey: ["receitas"] });
+    } catch (err: any) {
+      toast.error(`Erro ao excluir: ${err.message}`);
+    }
+  }
+
   async function salvar() {
     if (!ed) return;
-    const row = { nome: ed.nome, categoria: ed.categoria, preco: Number(ed.preco), descricao: ed.descricao || null, foto_url: ed.foto_url || null, ativo: ed.ativo };
-    let id = ed.id;
-    if (id) { const { error } = await supabase.from("produtos").update(row).eq("id", id); if (error) { toast.error(error.message); return; } }
-    else { const { data, error } = await supabase.from("produtos").insert(row).select("id").single(); if (error) { toast.error(error.message); return; } id = data.id; }
-    await supabase.from("receitas").delete().eq("produto_id", id!);
-    const linhas = ed.linhas.filter((l) => l.ingrediente_id && Number(l.quantidade) > 0);
-    if (linhas.length) {
-      const { error } = await supabase.from("receitas").insert(linhas.map((l) => ({ produto_id: id!, ingrediente_id: l.ingrediente_id, quantidade: Number(l.quantidade) })));
-      if (error) { toast.error(error.message); return; }
+    if (!ed.nome.trim()) { toast.error("Nome do produto é obrigatório"); return; }
+
+    try {
+      // Salvar produto — tenta Supabase primeiro, fallback para localStorage
+      const { data: prodData, error: prodErr } = await upsertProduto({
+        _id: ed.id || null,
+        _nome: ed.nome.trim(),
+        _categoria: ed.categoria.trim(),
+        _preco: Number(ed.preco) || 0,
+        _descricao: ed.descricao?.trim() || null,
+        _foto_url: ed.foto_url?.trim() || null,
+        _ativo: ed.ativo
+      });
+
+      if (prodErr) {
+        console.error("[Cardapio] Erro ao salvar produto:", prodErr);
+        toast.error(`Erro ao salvar produto: ${prodErr.message}`);
+        return;
+      }
+
+      const id = (prodData as any)?.id || ed.id;
+      if (!id) {
+        toast.error("Falha ao obter ID do produto.");
+        return;
+      }
+
+      // Limpar receitas antigas
+      const { error: delErr } = await deleteReceitasPorProduto(id);
+      if (delErr) console.warn("[Cardapio] Erro ao limpar receitas:", delErr);
+
+      // Salvar novas receitas — tenta Supabase primeiro, fallback para localStorage
+      const linhas = ed.linhas.filter((l) => l.ingrediente_id && Number(l.quantidade) > 0);
+      if (linhas.length) {
+        const { error: insErr } = await insertReceitas({
+          _produto_id: id,
+          _ingrediente_ids: linhas.map((l) => l.ingrediente_id),
+          _quantidades: linhas.map((l) => Number(l.quantidade))
+        });
+        if (insErr) {
+          console.error("[Cardapio] Erro ao salvar receitas:", insErr);
+          toast.error(`Erro ao salvar ficha técnica: ${insErr.message}`);
+          return;
+        }
+      }
+
+      toast.success("Produto salvo com sucesso!");
+      setEd(null);
+      qc.invalidateQueries({ queryKey: ["produtos"] });
+      qc.invalidateQueries({ queryKey: ["receitas"] });
+    } catch (err: any) {
+      console.error("[Cardapio] Erro inesperado ao salvar:", err);
+      toast.error(`Erro inesperado: ${err.message || "Tente novamente"}`);
     }
-    toast.success("Produto salvo"); setEd(null);
-    qc.invalidateQueries({ queryKey: ["produtos"] }); qc.invalidateQueries({ queryKey: ["receitas"] });
   }
 
   return (
@@ -98,7 +170,14 @@ function Cardapio() {
                 </div>
                 {p.descricao && <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{p.descricao}</p>}
                 <div className="mt-3 flex justify-between text-sm"><span>Custo {brl(custo)}</span><span className={margem < 30 ? "text-destructive" : ""}>Margem {margem.toFixed(0)}%</span></div>
-                {isManager && <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => abrir(p)}>Editar</Button>}
+                {isManager && (
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => abrir(p)}>Editar</Button>
+                    <Button size="sm" variant="outline" className="w-10 px-0 text-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => excluirProduto(p.id)} title="Excluir produto">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -110,7 +189,7 @@ function Cardapio() {
           <DialogHeader><DialogTitle>{ed?.id ? "Editar" : "Novo"} produto</DialogTitle></DialogHeader>
           {ed && (
             <div className="space-y-3">
-              {/* Preview da foto */}
+              {/* Preview da foto com upload */}
               <div className="relative h-44 overflow-hidden rounded-xl bg-muted">
                 {ed.foto_url ? (
                   <img
@@ -134,15 +213,26 @@ function Cardapio() {
                     <X className="h-4 w-4" />
                   </button>
                 )}
+                {/* Upload overlay */}
+                <label className="absolute bottom-2 right-2 cursor-pointer rounded-lg bg-primary/90 px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary">
+                  <Upload className="mr-1 inline h-3 w-3" />
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                  />
+                </label>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">URL da foto</label>
+                <label className="mb-1 block text-sm font-medium">URL da foto (opcional)</label>
                 <Input
                   placeholder="https://exemplo.com/foto-do-produto.jpg"
-                  value={ed.foto_url}
+                  value={ed.foto_url?.startsWith?.("data:") ? "" : (ed.foto_url || "")}
                   onChange={(e) => setEd({ ...ed, foto_url: e.target.value })}
                 />
-                <p className="mt-1 text-xs text-muted-foreground">Cole a URL de uma imagem ou deixe vazio para usar a foto padrão da categoria.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Cole a URL de uma imagem, use o botão "Upload" para enviar uma foto, ou deixe vazio para usar a foto padrão.</p>
               </div>
               <Input placeholder="Nome" value={ed.nome} onChange={(e) => setEd({ ...ed, nome: e.target.value })} />
               <div className="grid grid-cols-2 gap-2">
@@ -154,11 +244,17 @@ function Cardapio() {
               <div className="text-sm font-semibold">Ficha técnica</div>
               {ed.linhas.map((l, i) => (
                 <div key={i} className="flex gap-2">
-                  <select className="flex-1 rounded-md border bg-background p-2 text-sm" value={l.ingrediente_id} onChange={(e) => { const ls = [...ed.linhas]; ls[i] = { ...l, ingrediente_id: e.target.value }; setEd({ ...ed, linhas: ls }); }}>
+                  <select className="flex-1 rounded-md border bg-background p-2 text-sm" value={l.ingrediente_id} onChange={(e) => {
+                    const ls = ed.linhas.map((item, idx) => idx === i ? { ...item, ingrediente_id: e.target.value } : item);
+                    setEd({ ...ed, linhas: ls });
+                  }}>
                     <option value="">Ingrediente...</option>
                     {ings.map((g) => <option key={g.id} value={g.id}>{g.nome} ({g.unidade})</option>)}
                   </select>
-                  <Input className="w-24" type="number" step="any" value={l.quantidade} onChange={(e) => { const ls = [...ed.linhas]; ls[i] = { ...l, quantidade: e.target.value }; setEd({ ...ed, linhas: ls }); }} />
+                  <Input className="w-24" type="number" step="any" value={l.quantidade} onChange={(e) => {
+                    const ls = ed.linhas.map((item, idx) => idx === i ? { ...item, quantidade: e.target.value } : item);
+                    setEd({ ...ed, linhas: ls });
+                  }} />
                   <Button variant="ghost" size="sm" onClick={() => setEd({ ...ed, linhas: ed.linhas.filter((_, j) => j !== i) })}>✕</Button>
                 </div>
               ))}

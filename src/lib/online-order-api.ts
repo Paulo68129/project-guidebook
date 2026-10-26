@@ -215,6 +215,24 @@ export async function criarFeedback(
       _comentario: comentario || null,
     });
     if (error) {
+      // Tabela feedback_clientes não existe — tenta insert direto
+      if (error.message?.includes('does not exist') || error.message?.includes('could not open relation') || error.message?.includes('function')) {
+        console.warn("[feedback] Tabela feedback_clientes não existe, tentando insert direto...");
+        const { error: insertError } = await (supabase as any)
+          .from("feedback_clientes")
+          .insert({
+            pedido_id: pedidoId,
+            cliente_nome: clienteNome,
+            nota,
+            mensagem: comentario || null,
+            aprovado: true,
+          });
+        if (insertError) {
+          console.warn("[feedback] Tabela feedback_clientes indisponível:", insertError.message);
+          throw new Error("O sistema de avaliações estará disponível em breve. Obrigado pela paciência!");
+        }
+        return;
+      }
       console.warn("[feedback] Não foi possível criar o feedback:", error.message);
       throw new Error(error.message);
     }

@@ -1,6 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
 import { queryOptions } from "@tanstack/react-query";
 import type { Tables } from "@/integrations/supabase/types";
+import { listarTodosIngredientes, listarTodosProdutos, listarReceitasPorProduto } from "@/lib/rpc-direct";
+import {
+  getLocalProducts, getLocalIngredients, getLocalRecipes,
+  getLocalMotoboys, getLocalCupons, getLocalLojaConfig, mergeWithLocal,
+} from "@/lib/local-storage";
 
 export type Ingrediente = Tables<"ingredientes">;
 export type Produto = Tables<"produtos">;
@@ -18,28 +23,96 @@ function must<T>(r: { data: T | null; error: { message: string } | null }): T {
 
 export const ingredientesQ = queryOptions({
   queryKey: ["ingredientes"],
-  queryFn: async () => must(await supabase.from("ingredientes").select("*").order("nome")),
+  refetchInterval: 10000, // Real-time stock refresh every 10s
+  queryFn: async () => {
+    // Tenta RPC direto primeiro, fallback para query direta
+    const { data: rpcData, error: rpcErr } = await listarTodosIngredientes();
+    let cloudData: Ingrediente[] = [];
+    if (!rpcErr && Array.isArray(rpcData)) {
+      cloudData = rpcData as Ingrediente[];
+    } else {
+      cloudData = must(await supabase.from("ingredientes").select("*").order("nome"));
+    }
+    // Merge with local storage
+    const localData = getLocalIngredients();
+    return mergeWithLocal(cloudData, localData) as Ingrediente[];
+  },
 });
 export const produtosQ = queryOptions({
   queryKey: ["produtos"],
-  queryFn: async () => must(await supabase.from("produtos").select("*").order("categoria").order("nome")),
+  refetchInterval: 15000, // Auto-refresh every 15s
+  queryFn: async () => {
+    // Tenta RPC direto primeiro, fallback para query direta
+    const { data: rpcData, error: rpcErr } = await listarTodosProdutos();
+    let cloudData: Produto[] = [];
+    if (!rpcErr && Array.isArray(rpcData)) {
+      cloudData = rpcData as Produto[];
+    } else {
+      cloudData = must(await supabase.from("produtos").select("*").order("categoria").order("nome"));
+    }
+    // Merge with local storage
+    const localData = getLocalProducts();
+    return mergeWithLocal(cloudData, localData) as Produto[];
+  },
 });
 export const receitasQ = queryOptions({
   queryKey: ["receitas"],
-  queryFn: async () => must(await supabase.from("receitas").select("*")),
+  refetchInterval: 15000,
+  queryFn: async () => {
+    // Tenta query direta primeiro; se falhar por RLS, coleta por produto via RPC direto
+    const { data: directData, error: directErr } = await supabase.from("receitas").select("*");
+    let cloudData: Receita[] = [];
+    if (!directErr && directData) {
+      cloudData = directData as Receita[];
+    } else {
+      const { data: allProdutos } = await listarTodosProdutos();
+      if (Array.isArray(allProdutos)) {
+        for (const p of allProdutos as Produto[]) {
+          const { data: rData } = await listarReceitasPorProduto(p.id);
+          if (Array.isArray(rData)) cloudData.push(...rData as Receita[]);
+        }
+      }
+    }
+    // Merge with local storage
+    const localData = getLocalRecipes();
+    return mergeWithLocal(cloudData, localData) as Receita[];
+  },
 });
+
 export const motoboysQ = queryOptions({
   queryKey: ["motoboys"],
-  queryFn: async () => must(await supabase.from("motoboys").select("*").order("nome")),
+  queryFn: async () => {
+    try {
+      const cloudData = must(await supabase.from("motoboys").select("*").order("nome"));
+      const localData = getLocalMotoboys();
+      return mergeWithLocal(cloudData, localData) as Motoboy[];
+    } catch {
+      return getLocalMotoboys() as Motoboy[];
+    }
+  },
 });
 export const cuponsQ = queryOptions({
   queryKey: ["cupons"],
-  queryFn: async () => must(await supabase.from("cupons").select("*").order("codigo")),
+  queryFn: async () => {
+    try {
+      const cloudData = must(await supabase.from("cupons").select("*").order("codigo"));
+      const localData = getLocalCupons();
+      return mergeWithLocal(cloudData, localData) as any[];
+    } catch {
+      return getLocalCupons();
+    }
+  },
 });
 export type LojaConfig = Tables<"loja_config">;
 export const configQ = queryOptions({
   queryKey: ["config"],
-  queryFn: async () => must(await supabase.from("loja_config").select("*").eq("id", 1).single()) as LojaConfig,
+  queryFn: async () => {
+    try {
+      return must(await supabase.from("loja_config").select("*").eq("id", 1).single()) as LojaConfig;
+    } catch {
+      return getLocalLojaConfig() as LojaConfig;
+    }
+  },
 });
 
 /** Vendas dos últimos N dias, paginando além do limite de 1000 linhas. */

@@ -18,6 +18,183 @@ async function getServerEntry(): Promise<ServerEntry> {
   return serverEntryPromise;
 }
 
+// Use supabaseAdmin client to bypass RLS — server-side only
+async function supabaseOp(table: string, op: "insert" | "update" | "delete" | "select", data?: any, filters?: { column: string; value: any }): Promise<any> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  let query = supabaseAdmin.from(table);
+
+  if (op === "select") {
+    if (filters) query = query.eq(filters.column, filters.value);
+    const { data: result, error } = await query.select();
+    if (error) throw new Error(`SELECT ${table}: ${error.message}`);
+    return result;
+  }
+
+  if (op === "insert") {
+    const items = Array.isArray(data) ? data : [data];
+    const { data: result, error } = await query.insert(items).select();
+    if (error) throw new Error(`INSERT ${table}: ${error.message}`);
+    return result;
+  }
+
+  if (op === "update" && filters) {
+    const { data: result, error } = await query.update(data).eq(filters.column, filters.value).select();
+    if (error) throw new Error(`UPDATE ${table}: ${error.message}`);
+    return result;
+  }
+
+  if (op === "delete" && filters) {
+    const { error } = await query.delete().eq(filters.column, filters.value);
+    if (error) throw new Error(`DELETE ${table}: ${error.message}`);
+    return { success: true };
+  }
+
+  throw new Error(`Unknown operation: ${op}`);
+}
+
+// Direct handler for /api/admin/save — uses REST API directly, bypassing RPC and schema cache
+async function handleAdminSave(request: Request): Promise<Response> {
+  if (request.method !== "POST") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+  try {
+    const body = await request.json();
+    const { action, params } = body as { action: string; params: Record<string, any> };
+    console.log("[admin/save] Action:", action);
+
+    let data: any = null;
+
+    switch (action) {
+      case "upsert_produto": {
+        const produto: Record<string, any> = {
+          nome: params._nome,
+          categoria: params._categoria,
+          preco: Number(params._preco),
+          ativo: params._ativo === true || params._ativo === "true",
+        };
+        if (params._descricao) produto.descricao = params._descricao;
+        if (params._foto_url) produto.foto_url = params._foto_url;
+        if (params._id && params._id !== "") {
+          data = await supabaseOp("produtos", "update", produto, { column: "id", value: params._id });
+        } else {
+          data = await supabaseOp("produtos", "insert", produto);
+        }
+        break;
+      }
+      case "delete_produto": {
+        data = await supabaseOp("produtos", "delete", undefined, { column: "id", value: params._id });
+        break;
+      }
+      case "delete_receitas_por_produto": {
+        data = await supabaseOp("receitas", "delete", undefined, { column: "produto_id", value: params._produto_id });
+        break;
+      }
+      case "insert_receitas": {
+        const { _produto_id, _ingrediente_ids, _quantidades } = params;
+        const items = [];
+        for (let i = 0; i < _ingrediente_ids.length; i++) {
+          items.push({
+            produto_id: _produto_id,
+            ingrediente_id: _ingrediente_ids[i],
+            quantidade: Number(_quantidades[i]),
+          });
+        }
+        data = await supabaseOp("receitas", "insert", items);
+        break;
+      }
+      case "upsert_ingrediente": {
+        const ingrediente: Record<string, any> = {
+          nome: params._nome,
+          unidade: params._unidade,
+          quantidade: Number(params._quantidade),
+          estoque_minimo: Number(params._estoque_minimo),
+          custo_unitario: Number(params._custo_unitario),
+        };
+        if (params._validade && params._validade !== "") {
+          ingrediente.validade = params._validade;
+        }
+        if (params._id && params._id !== "") {
+          data = await supabaseOp("ingredientes", "update", ingrediente, { column: "id", value: params._id });
+        } else {
+          data = await supabaseOp("ingredientes", "insert", ingrediente);
+        }
+        break;
+      }
+      case "dar_entrada_ingrediente": {
+        const current = await supabaseOp("ingredientes", "select", undefined, { column: "id", value: params._id });
+        if (current && current.length > 0) {
+          const ing = current[0];
+          const updated = { ...ing, quantidade: Number(ing.quantidade) + Number(params._quantidade) };
+          data = await supabaseOp("ingredientes", "update", updated, { column: "id", value: params._id });
+        }
+        break;
+      }
+      case "delete_ingrediente": {
+        data = await supabaseOp("ingredientes", "delete", undefined, { column: "id", value: params._id });
+        break;
+      }
+      case "update_loja_config": {
+        const loja: Record<string, any> = {};
+        if (params._abre) loja.abre = params._abre;
+        if (params._fecha) loja.fecha = params._fecha;
+        if (params._taxa_entrega != null) loja.taxa_entrega = Number(params._taxa_entrega);
+        if (params._som_alerta != null) loja.som_alerta = params._som_alerta === true || params._som_alerta === "true";
+        data = await supabaseOp("loja_config", "update", loja, { column: "id", value: 1 });
+        break;
+      }
+      case "insert_motoboy": {
+        data = await supabaseOp("motoboys", "insert", { nome: params._nome, telefone: params._telefone || null });
+        break;
+      }
+      case "toggle_motoboy_ativo": {
+        const current = await supabaseOp("motoboys", "select", undefined, { column: "id", value: params._id });
+        if (current && current.length > 0) {
+          const mb = current[0];
+          data = await supabaseOp("motoboys", "update", { ...mb, ativo: !mb.ativo }, { column: "id", value: params._id });
+        }
+        break;
+      }
+      case "insert_cupom": {
+        data = await supabaseOp("cupons", "insert", { codigo: params._codigo, percentual: Number(params._percentual) });
+        break;
+      }
+      case "toggle_cupom_ativo": {
+        const current = await supabaseOp("cupons", "select", undefined, { column: "id", value: params._id });
+        if (current && current.length > 0) {
+          const cp = current[0];
+          data = await supabaseOp("cupons", "update", { ...cp, ativo: !cp.ativo }, { column: "id", value: params._id });
+        }
+        break;
+      }
+      case "listar_todos_produtos": {
+        data = await supabaseOp("produtos", "select");
+        break;
+      }
+      case "listar_todos_ingredientes": {
+        data = await supabaseOp("ingredientes", "select");
+        break;
+      }
+      case "listar_receitas_por_produto": {
+        data = await supabaseOp("receitas", "select", undefined, { column: "produto_id", value: params._produto_id });
+        break;
+      }
+      default:
+        return new Response(JSON.stringify({ error: { message: `Ação desconhecida: ${action}` }, data: null }), {
+          status: 400, headers: { "Content-Type": "application/json" },
+        });
+    }
+
+    return new Response(JSON.stringify({ error: null, data }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
+  } catch (err: any) {
+    console.error("[admin/save] Error:", err.message || err);
+    return new Response(JSON.stringify({ error: { message: err.message || "Internal server error" }, data: null }), {
+      status: 500, headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
 // h3 swallows in-handler throws into a normal 500 Response with body
 // {"unhandled":true,"message":"HTTPError"} — try/catch alone never fires for those.
 async function normalizeCatastrophicSsrResponse(response: Response): Promise<Response> {
@@ -47,6 +224,11 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      // Intercept /api/admin/save requests — handle directly, bypassing TanStack Router
+      const url = new URL(request.url);
+      if (url.pathname === "/api/admin/save" && request.method === "POST") {
+        return await handleAdminSave(request);
+      }
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);
